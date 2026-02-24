@@ -14,4 +14,6 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
     """)
     Double sumByBudgetId(@Param("budgetId") Long budgetId);
 
+    Long countByCategory_Budget_Id(Long budgetId);
+
 }
