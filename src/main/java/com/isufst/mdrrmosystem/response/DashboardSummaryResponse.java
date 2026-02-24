@@ -10,19 +10,22 @@ public class DashboardSummaryResponse {
     private final long categoryCount;
     private final long expenseCount;
     private final List<CategoryBreakdownResponse> categoryBreakdown;
+    private final long calamityCount;
 
     public DashboardSummaryResponse(double totalBudget,
                                     double totalSpent,
                                     double remaining,
                                     long categoryCount,
                                     long expenseCount,
-                                    List<CategoryBreakdownResponse> categoryBreakdown) {
+                                    List<CategoryBreakdownResponse> categoryBreakdown,
+                                    long calamityCount) {
         this.totalBudget = totalBudget;
         this.totalSpent = totalSpent;
         this.remaining = remaining;
         this.categoryCount = categoryCount;
         this.expenseCount = expenseCount;
         this.categoryBreakdown = categoryBreakdown;
+        this.calamityCount = calamityCount;
     }
 
     public double getTotalBudget() { return totalBudget; }
@@ -31,4 +34,5 @@ public class DashboardSummaryResponse {
     public long getCategoryCount() { return categoryCount; }
     public long getExpenseCount() { return expenseCount; }
     public List<CategoryBreakdownResponse> getCategoryBreakdown() { return categoryBreakdown; }
+    public long getCalamityCount() { return calamityCount; }
 }

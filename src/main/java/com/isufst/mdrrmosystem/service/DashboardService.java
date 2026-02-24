@@ -5,12 +5,14 @@ import com.isufst.mdrrmosystem.entity.BudgetCategory;
 import com.isufst.mdrrmosystem.entity.Expense;
 import com.isufst.mdrrmosystem.repository.BudgetCategoryRepository;
 import com.isufst.mdrrmosystem.repository.BudgetRepository;
+import com.isufst.mdrrmosystem.repository.CalamityRepository;
 import com.isufst.mdrrmosystem.repository.ExpenseRepository;
 import com.isufst.mdrrmosystem.response.CategoryBreakdownResponse;
 import com.isufst.mdrrmosystem.response.DashboardResponse;
 import com.isufst.mdrrmosystem.response.DashboardSummaryResponse;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @Service
@@ -19,11 +21,14 @@ public class DashboardService {
     private final BudgetRepository budgetRepository;
     private final ExpenseRepository expenseRepository;
     private final BudgetCategoryRepository categoryRepository;
+    private final CalamityRepository calamityRepository;
 
-    public DashboardService(BudgetRepository budgetRepository, ExpenseRepository expenseRepository,BudgetCategoryRepository categoryRepository) {
+    public DashboardService(BudgetRepository budgetRepository, ExpenseRepository expenseRepository,
+                            BudgetCategoryRepository categoryRepository,  CalamityRepository calamityRepository) {
         this.budgetRepository = budgetRepository;
         this.expenseRepository = expenseRepository;
         this.categoryRepository = categoryRepository;
+        this.calamityRepository = calamityRepository;
     }
 
     public DashboardSummaryResponse getSummary() {
@@ -44,13 +49,19 @@ public class DashboardService {
 
         List<CategoryBreakdownResponse> breakdown = expenseRepository.getCategoryBreakdown();
 
+        long calamityCount = calamityRepository.countByDateBetween(
+                LocalDate.now().withDayOfYear(1),
+                LocalDate.now()
+        );
+
         return new DashboardSummaryResponse(
                 totalBudget,
                 totalSpent,
                 remaining,
                 categoryCount,
                 expenseCount,
-                breakdown
+                breakdown,
+                calamityCount
         );
     }
 
