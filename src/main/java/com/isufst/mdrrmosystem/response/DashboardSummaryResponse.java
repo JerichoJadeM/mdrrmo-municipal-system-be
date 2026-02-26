@@ -11,6 +11,7 @@ public class DashboardSummaryResponse {
     private final long expenseCount;
     private final List<CategoryBreakdownResponse> categoryBreakdown;
     private final long calamityCount;
+    private final long activeIncidents;
 
     public DashboardSummaryResponse(double totalBudget,
                                     double totalSpent,
@@ -18,7 +19,8 @@ public class DashboardSummaryResponse {
                                     long categoryCount,
                                     long expenseCount,
                                     List<CategoryBreakdownResponse> categoryBreakdown,
-                                    long calamityCount) {
+                                    long calamityCount,
+                                    long activeIncidents) {
         this.totalBudget = totalBudget;
         this.totalSpent = totalSpent;
         this.remaining = remaining;
@@ -26,6 +28,7 @@ public class DashboardSummaryResponse {
         this.expenseCount = expenseCount;
         this.categoryBreakdown = categoryBreakdown;
         this.calamityCount = calamityCount;
+        this.activeIncidents = activeIncidents;
     }
 
     public double getTotalBudget() { return totalBudget; }
@@ -35,4 +38,5 @@ public class DashboardSummaryResponse {
     public long getExpenseCount() { return expenseCount; }
     public List<CategoryBreakdownResponse> getCategoryBreakdown() { return categoryBreakdown; }
     public long getCalamityCount() { return calamityCount; }
+    public long getActiveIncidents() { return activeIncidents; }
 }

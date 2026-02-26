@@ -9,5 +9,6 @@ public record DashboardResponse(
         Long totalCategories,
         Long totalExpenses,
         List<CategoryBreakdownResponse> categoryBreakdown
+
 ) {
 }

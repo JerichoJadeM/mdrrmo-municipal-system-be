@@ -3,10 +3,7 @@ package com.isufst.mdrrmosystem.service;
 import com.isufst.mdrrmosystem.entity.Budget;
 import com.isufst.mdrrmosystem.entity.BudgetCategory;
 import com.isufst.mdrrmosystem.entity.Expense;
-import com.isufst.mdrrmosystem.repository.BudgetCategoryRepository;
-import com.isufst.mdrrmosystem.repository.BudgetRepository;
-import com.isufst.mdrrmosystem.repository.CalamityRepository;
-import com.isufst.mdrrmosystem.repository.ExpenseRepository;
+import com.isufst.mdrrmosystem.repository.*;
 import com.isufst.mdrrmosystem.response.CategoryBreakdownResponse;
 import com.isufst.mdrrmosystem.response.DashboardResponse;
 import com.isufst.mdrrmosystem.response.DashboardSummaryResponse;
@@ -22,13 +19,16 @@ public class DashboardService {
     private final ExpenseRepository expenseRepository;
     private final BudgetCategoryRepository categoryRepository;
     private final CalamityRepository calamityRepository;
+    private final IncidentRepository incidentRepository;
 
     public DashboardService(BudgetRepository budgetRepository, ExpenseRepository expenseRepository,
-                            BudgetCategoryRepository categoryRepository,  CalamityRepository calamityRepository) {
+                            BudgetCategoryRepository categoryRepository,  CalamityRepository calamityRepository,
+                            IncidentRepository incidentRepository) {
         this.budgetRepository = budgetRepository;
         this.expenseRepository = expenseRepository;
         this.categoryRepository = categoryRepository;
         this.calamityRepository = calamityRepository;
+        this.incidentRepository = incidentRepository;
     }
 
     public DashboardSummaryResponse getSummary() {
@@ -54,6 +54,8 @@ public class DashboardService {
                 LocalDate.now()
         );
 
+        long activeIncidents = incidentRepository.countByStatus("ONGOING");
+
         return new DashboardSummaryResponse(
                 totalBudget,
                 totalSpent,
@@ -61,7 +63,9 @@ public class DashboardService {
                 categoryCount,
                 expenseCount,
                 breakdown,
-                calamityCount
+                calamityCount,
+                activeIncidents
+
         );
     }
 
@@ -105,4 +109,5 @@ public class DashboardService {
                 })
                 .toList();
     }
+
 }
