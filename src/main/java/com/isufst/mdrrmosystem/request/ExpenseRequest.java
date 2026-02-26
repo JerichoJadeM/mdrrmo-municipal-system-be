@@ -5,6 +5,7 @@ import java.time.LocalDate;
 public record ExpenseRequest(
         String description,
         double amount,
-        LocalDate expenseDate
+        LocalDate expenseDate,
+        Long incidentId
 ) {
 }

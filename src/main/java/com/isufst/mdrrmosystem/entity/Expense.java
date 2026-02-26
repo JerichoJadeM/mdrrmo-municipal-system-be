@@ -27,8 +27,20 @@ public class Expense {
     private BudgetCategory category;
 
     @ManyToOne
+    @JoinColumn(name = "incident_id")
+    private Incident incident;
+
+    @ManyToOne
     @JoinColumn(name = "created_by")
     private User createdBy;
+
+    public Incident getIncident() {
+        return incident;
+    }
+
+    public void setIncident(Incident incident) {
+        this.incident = incident;
+    }
 
     public Expense() {}
 

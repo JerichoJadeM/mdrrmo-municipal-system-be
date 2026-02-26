@@ -23,6 +23,10 @@ public class Incident {
     @Column(length = 1000)
     private String description;
 
+    @ManyToOne
+    @JoinColumn(name = "reported_by")
+    private User reportedBy;
+
     public Incident() {}
 
     public Incident(String type, String barangay, String severity, String status, LocalDateTime reportedAt, String description) {
@@ -88,5 +92,13 @@ public class Incident {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public User getReportedBy() {
+        return reportedBy;
+    }
+
+    public void setReportedBy(User reportedBy) {
+        this.reportedBy = reportedBy;
     }
 }

@@ -4,6 +4,7 @@ import com.isufst.mdrrmosystem.entity.Incident;
 import com.isufst.mdrrmosystem.repository.IncidentRepository;
 import com.isufst.mdrrmosystem.request.IncidentRequest;
 import com.isufst.mdrrmosystem.response.IncidentResponse;
+import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,9 +15,11 @@ import java.util.List;
 public class IncidentService {
 
     private final IncidentRepository incidentRepository;
+    private final FindAuthenticatedUser findAuthenticatedUser;
 
-    public IncidentService(IncidentRepository incidentRepository) {
+    public IncidentService(IncidentRepository incidentRepository,  FindAuthenticatedUser findAuthenticatedUser) {
         this.incidentRepository = incidentRepository;
+        this.findAuthenticatedUser = findAuthenticatedUser;
     }
 
     @Transactional
@@ -29,6 +32,7 @@ public class IncidentService {
         incident.setDescription(incidentRequest.description);
         incident.setStatus("ONGOING");
         incident.setReportedAt(LocalDateTime.now());
+        incident.setReportedBy(findAuthenticatedUser.getAuthenticatedUser());
 
         Incident saveNewIncident = incidentRepository.save(incident);
 
