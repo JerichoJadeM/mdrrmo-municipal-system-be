@@ -1,0 +1,12 @@
+package com.isufst.mdrrmosystem.repository;
+
+import com.isufst.mdrrmosystem.entity.EvacuationActivation;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface EvacuationActivationRepository extends JpaRepository<EvacuationActivation, Long> {
+
+    List<EvacuationActivation> findByIncident_Id(Long incidentId);
+    List<EvacuationActivation> findByStatus(String status);
+}
