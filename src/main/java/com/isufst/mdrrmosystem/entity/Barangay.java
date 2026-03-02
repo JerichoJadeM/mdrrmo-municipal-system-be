@@ -32,7 +32,7 @@ public class Barangay {
         this.coastal = coastal;
     }
 
-    public Long getId() {
+    public long getId() {
         return id;
     }
 

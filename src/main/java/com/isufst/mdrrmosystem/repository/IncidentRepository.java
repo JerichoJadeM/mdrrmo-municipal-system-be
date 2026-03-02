@@ -19,4 +19,6 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
         ORDER BY COUNT(i) DESC
     """)
     List<Object[]>  incidentHeatmap();
+
+    long countByBarangayIdAndStatus(long barangayId, String status);
 }
