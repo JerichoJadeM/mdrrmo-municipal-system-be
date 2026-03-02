@@ -10,7 +10,10 @@ public class EvacuationCenter {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id; //e.g San Isidro Gym
     private String name;
-    private String barangay;
+
+    @ManyToOne
+    @JoinColumn(name = "barangay_id")
+    private Barangay barangay;
     private int capacity;
 
     @Column(name = "location_details")
@@ -32,11 +35,11 @@ public class EvacuationCenter {
         this.name = name;
     }
 
-    public String getBarangay() {
+    public Barangay getBarangay() {
         return barangay;
     }
 
-    public void setBarangay(String barangay) {
+    public void setBarangay(Barangay barangay) {
         this.barangay = barangay;
     }
 

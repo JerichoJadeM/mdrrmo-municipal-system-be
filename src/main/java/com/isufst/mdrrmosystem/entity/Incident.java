@@ -13,7 +13,10 @@ public class Incident {
     private long id;
     private String type; // Vehicular Accident, Fire, Flood, Medical Emergency
 
-    private String barangay;
+    @ManyToOne
+    @JoinColumn(name = "barangay_id")
+    private Barangay barangay;
+
     private String severity; // Low, Medium, High
     private String status; // Ongoing, Resolved
 
@@ -29,7 +32,7 @@ public class Incident {
 
     public Incident() {}
 
-    public Incident(String type, String barangay, String severity, String status, LocalDateTime reportedAt, String description) {
+    public Incident(String type, Barangay barangay, String severity, String status, LocalDateTime reportedAt, String description) {
         this.type = type;
         this.barangay = barangay;
         this.severity = severity;
@@ -54,11 +57,11 @@ public class Incident {
         this.type = type;
     }
 
-    public String getBarangay() {
+    public Barangay getBarangay() {
         return barangay;
     }
 
-    public void setBarangay(String barangay) {
+    public void setBarangay(Barangay barangay) {
         this.barangay = barangay;
     }
 

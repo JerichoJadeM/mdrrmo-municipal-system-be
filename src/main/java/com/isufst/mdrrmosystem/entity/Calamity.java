@@ -17,8 +17,10 @@ public class Calamity {
     @Column(nullable = false)
     private String type; //Flood, Typhoon, Earthquake, Fire
 
-    @Column(nullable = false)
-    private  String barangay;
+
+    @ManyToOne
+    @JoinColumn(name = "barangay_id")
+    private  Barangay barangay;
 
     @Column(nullable = false)
     private  String severity; // LOW, MEDIUM, HIGH
@@ -37,7 +39,7 @@ public class Calamity {
 
     public Calamity() {}
 
-    public Calamity(String type, String barangay, String severity, LocalDate date, double damageCost, int casualties, String description) {
+    public Calamity(String type, Barangay barangay, String severity, LocalDate date, double damageCost, int casualties, String description) {
         this.type = type;
         this.barangay = barangay;
         this.severity = severity;
@@ -63,11 +65,11 @@ public class Calamity {
         this.type = type;
     }
 
-    public String getBarangay() {
+    public Barangay getBarangay() {
         return barangay;
     }
 
-    public void setBarangay(String barangay) {
+    public void setBarangay(Barangay barangay) {
         this.barangay = barangay;
     }
 
