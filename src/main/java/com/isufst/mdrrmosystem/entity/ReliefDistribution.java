@@ -14,9 +14,13 @@ public class ReliefDistribution {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "item_type")
-    private String itemType;
+    //    @Column(name = "item_type")
+    //    private String itemType; replaced by Inventory - inventory
     // e.g. FOOD_PACK, WATER, MEDICINE, HYGIENE_KIT
+
+    @ManyToOne
+    @JoinColumn(name = "inventory_id")
+    private Inventory inventory;
 
     private int quantity;
 
@@ -35,20 +39,20 @@ public class ReliefDistribution {
     @JoinColumn(name = "distributed_by")
     private User distributedBy;
 
+    public Inventory getInventory() {
+        return inventory;
+    }
+
+    public void setInventory(Inventory inventory) {
+        this.inventory = inventory;
+    }
+
     public Long getId() {
         return id;
     }
 
     public void setId(Long id) {
         this.id = id;
-    }
-
-    public String getItemType() {
-        return itemType;
-    }
-
-    public void setItemType(String itemType) {
-        this.itemType = itemType;
     }
 
     public int getQuantity() {

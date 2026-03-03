@@ -4,7 +4,8 @@ import java.time.LocalDateTime;
 
 public record ReliefDistributionResponse(
         Long id,
-        String itemType,
+        Long inventoryId,
+        String inventoryName,
         int quantity,
         LocalDateTime distributedAt,
         String incidentType,

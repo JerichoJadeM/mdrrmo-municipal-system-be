@@ -14,6 +14,7 @@ public class InventoryTransaction {
 
     @Column(name = "action_type")
     private String actionType; // DEPLOY, RETURN, CONSUMED, DAMAGED
+
     private int quantity;
 
     @Column(name = "time_stamp")
@@ -34,6 +35,18 @@ public class InventoryTransaction {
     @ManyToOne
     @JoinColumn(name = "performed_by_id")
     private User performedBy;
+
+    @ManyToOne
+    @JoinColumn(name = "distribution_id")
+    private ReliefDistribution distribution;
+
+    public ReliefDistribution getDistribution() {
+        return distribution;
+    }
+
+    public void setDistribution(ReliefDistribution distribution) {
+        this.distribution = distribution;
+    }
 
     public User getPerformedBy() {
         return performedBy;
