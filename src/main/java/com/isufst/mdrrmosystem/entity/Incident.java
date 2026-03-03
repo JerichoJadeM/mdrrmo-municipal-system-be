@@ -27,8 +27,23 @@ public class Incident {
     private String description;
 
     @ManyToOne
+    @JoinColumn(name = "assigned_responder_id")
+    private User assignedResponder;
+
+    @Column(name = "availability_status")
+    private String availability_status;
+
+    @ManyToOne
     @JoinColumn(name = "reported_by")
     private User reportedBy;
+
+    public User getAssignedResponder() {
+        return assignedResponder;
+    }
+
+    public void setAssignedResponder(User assignedResponder) {
+        this.assignedResponder = assignedResponder;
+    }
 
     public Incident() {}
 
