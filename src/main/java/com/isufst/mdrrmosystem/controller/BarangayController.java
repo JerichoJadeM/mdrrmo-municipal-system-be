@@ -1,6 +1,7 @@
 package com.isufst.mdrrmosystem.controller;
 
 import com.isufst.mdrrmosystem.entity.Barangay;
+import com.isufst.mdrrmosystem.response.BarangayResponse;
 import com.isufst.mdrrmosystem.service.BarangayService;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,8 +22,13 @@ public class BarangayController {
         return barangayService.addBarangay(barangay);
     }
 
-    @GetMapping
+    @GetMapping("/all")
     public List<Barangay> getAllBarangay() {
         return barangayService.findAllBarangay();
+    }
+
+    @GetMapping
+    public List<BarangayResponse> getBatadBarangays(){
+        return barangayService.getBatadBarangays();
     }
 }

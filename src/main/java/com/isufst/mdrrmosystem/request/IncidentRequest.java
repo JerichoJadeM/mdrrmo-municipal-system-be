@@ -1,11 +1,24 @@
 package com.isufst.mdrrmosystem.request;
 
 import com.isufst.mdrrmosystem.entity.Barangay;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
-public class IncidentRequest {
+public record IncidentRequest(
+        @NotBlank(message = "Type is required")
+        String type,
 
-    public String type;
-    public Barangay barangay;
-    public String severity;
-    public String description;
+        @NotNull(message = "Barangay is required")
+        Long barangayId,
+
+        Long assignedResponderId,
+
+        @NotBlank(message = "Severity is required")
+        String severity,
+
+        @NotBlank(message = "Description is required")
+        String description
+) {
 }

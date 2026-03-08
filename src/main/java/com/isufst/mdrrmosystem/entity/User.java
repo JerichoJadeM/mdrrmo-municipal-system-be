@@ -35,6 +35,9 @@ public class User implements UserDetails {
     @Column(nullable = false)
     private String number;
 
+    @Column(nullable = false, name = "assignment_status")
+    private String assignmentStatus;
+
     @Column(nullable = false)
     private String password;
 
@@ -110,6 +113,14 @@ public class User implements UserDetails {
         this.number = number;
     }
 
+    public String getAssignmentStatus() {
+        return assignmentStatus;
+    }
+
+    public void setAssignmentStatus(String assigmentStatus) {
+        this.assignmentStatus = assigmentStatus;
+    }
+
     public void setPassword(String password) {
         this.password = password;
     }
@@ -137,6 +148,16 @@ public class User implements UserDetails {
 
     public  void setAuthorities(List<Authority> authorities) {
         this.authorities = authorities;
+    }
+
+    // convenience method for full name
+    @Transient
+    public String getFullName() {
+        return String.join(" ",
+                firstName != null ? firstName.trim() : "",
+                middleName != null && !middleName.isBlank() ? middleName.trim() : "",
+                lastName != null ? lastName.trim() : ""
+        ).trim().replaceAll("\\s+", " ");
     }
 
     @Override

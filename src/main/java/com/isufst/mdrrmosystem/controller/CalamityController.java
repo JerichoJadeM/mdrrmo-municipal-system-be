@@ -3,6 +3,7 @@ package com.isufst.mdrrmosystem.controller;
 import com.isufst.mdrrmosystem.request.CalamityRequest;
 import com.isufst.mdrrmosystem.response.CalamityResponse;
 import com.isufst.mdrrmosystem.service.CalamityService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,7 +19,7 @@ public class CalamityController {
     }
 
     @PostMapping
-    public CalamityResponse createCalamityRecord(@RequestBody CalamityRequest calamityRequest){
+    public CalamityResponse createCalamityRecord(@Valid @RequestBody CalamityRequest calamityRequest){
         return calamityService.addCalamityRecord(calamityRequest);
     }
 

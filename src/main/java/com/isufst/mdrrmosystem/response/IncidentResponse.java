@@ -12,5 +12,6 @@ public record IncidentResponse(
         String status,
         LocalDateTime reportedAt,
         String description,
+        Long assignedResponderId,
         String assignedResponderName
 ) { }

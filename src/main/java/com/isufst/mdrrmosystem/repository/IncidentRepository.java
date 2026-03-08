@@ -1,6 +1,7 @@
 package com.isufst.mdrrmosystem.repository;
 
 import com.isufst.mdrrmosystem.entity.Incident;
+import com.isufst.mdrrmosystem.entity.ResponseAction;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
@@ -21,4 +22,6 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
     List<Object[]>  incidentHeatmap();
 
     long countByBarangayIdAndStatus(long barangayId, String status);
+
+
 }

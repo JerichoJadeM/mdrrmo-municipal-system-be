@@ -2,6 +2,7 @@ package com.isufst.mdrrmosystem.entity;
 
 import jakarta.persistence.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 @Entity
@@ -15,31 +16,37 @@ public class Calamity {
 
     // TODO: Convert 'type' and 'severity' to Enum once system stabilizes
     @Column(nullable = false)
-    private String type; //Flood, Typhoon, Earthquake, Fire
-
-
-    @ManyToOne
-    @JoinColumn(name = "barangay_id")
-    private  Barangay barangay;
+    private String type;
 
     @Column(nullable = false)
-    private  String severity; // LOW, MEDIUM, HIGH
+    private String status; // ACTIVE, MONITORING, RESOLVED, ENDED
+
+    @ManyToOne
+    @JoinColumn(name = "barangay_id", nullable = false)
+    private Barangay barangay;
+
+    @Column(nullable = false)
+    private String severity; // LOW, MEDIUM, HIGH
 
     @Column(nullable = false)
     private LocalDate date;
 
     @Column(nullable = false, name = "damage_cost")
-    private double damageCost;
+    private BigDecimal damageCost;
 
     @Column(nullable = false)
     private int casualties;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "coordinator_id")
+    private User coordinator;
 
     @Column(length = 1000, nullable = false)
     private String description;
 
     public Calamity() {}
 
-    public Calamity(String type, Barangay barangay, String severity, LocalDate date, double damageCost, int casualties, String description) {
+    public Calamity(String type, Barangay barangay, String severity, LocalDate date, BigDecimal damageCost, int casualties, String description) {
         this.type = type;
         this.barangay = barangay;
         this.severity = severity;
@@ -63,6 +70,15 @@ public class Calamity {
 
     public void setType(String type) {
         this.type = type;
+    }
+
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
     }
 
     public Barangay getBarangay() {
@@ -89,11 +105,11 @@ public class Calamity {
         this.date = date;
     }
 
-    public double getDamageCost() {
+    public BigDecimal getDamageCost() {
         return damageCost;
     }
 
-    public void setDamageCost(double damageCost) {
+    public void setDamageCost(BigDecimal damageCost) {
         this.damageCost = damageCost;
     }
 
@@ -103,6 +119,14 @@ public class Calamity {
 
     public void setCasualties(int casualties) {
         this.casualties = casualties;
+    }
+
+    public User getCoordinator() {
+        return coordinator;
+    }
+
+    public void setCoordinator(User coordinator) {
+        this.coordinator = coordinator;
     }
 
     public String getDescription() {

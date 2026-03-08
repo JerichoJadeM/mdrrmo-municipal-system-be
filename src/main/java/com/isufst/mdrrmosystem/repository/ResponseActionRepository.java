@@ -8,4 +8,6 @@ import java.util.List;
 public interface ResponseActionRepository extends JpaRepository<ResponseAction, Long> {
 
     List<ResponseAction> findByIncident_Id(Long incidentId);
+
+    List<ResponseAction> findByIncidentIdOrderByActionTimeDesc(Long incidentId);
 }

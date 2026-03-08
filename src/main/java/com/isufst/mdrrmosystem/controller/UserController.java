@@ -1,11 +1,14 @@
 package com.isufst.mdrrmosystem.controller;
 
 import com.isufst.mdrrmosystem.request.PasswordUpdateRequest;
+import com.isufst.mdrrmosystem.response.AssignableUserResponse;
 import com.isufst.mdrrmosystem.response.UserResponse;
 import com.isufst.mdrrmosystem.service.UserService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/users")
@@ -33,4 +36,13 @@ public class UserController {
         userService.updatePassword(passwordUpdateRequest);
     }
 
+    @GetMapping("/responders")
+    public List<AssignableUserResponse> getResponders() {
+        return userService.getAssignableResponders();
+    }
+
+    @GetMapping("/coordinators")
+    public List<AssignableUserResponse> getCoordinators() {
+        return userService.getAssignableCoordinators();
+    }
 }

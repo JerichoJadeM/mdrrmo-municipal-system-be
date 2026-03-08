@@ -11,14 +11,19 @@ public class Incident {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id;
-    private String type; // Vehicular Accident, Fire, Flood, Medical Emergency
+
+    @Column(nullable = false)
+    private String type;
 
     @ManyToOne
-    @JoinColumn(name = "barangay_id")
+    @JoinColumn(name = "barangay_id", nullable = false)
     private Barangay barangay;
 
-    private String severity; // Low, Medium, High
-    private String status; // Ongoing, Resolved
+    @Column(nullable = false)
+    private String severity;
+
+    @Column(nullable = false)
+    private String status;
 
     @Column(nullable = false, name = "reported_at")
     private LocalDateTime reportedAt;
@@ -26,24 +31,13 @@ public class Incident {
     @Column(length = 1000)
     private String description;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "assigned_responder_id")
     private User assignedResponder;
-
-    @Column(name = "availability_status")
-    private String availability_status;
 
     @ManyToOne
     @JoinColumn(name = "reported_by")
     private User reportedBy;
-
-    public User getAssignedResponder() {
-        return assignedResponder;
-    }
-
-    public void setAssignedResponder(User assignedResponder) {
-        this.assignedResponder = assignedResponder;
-    }
 
     public Incident() {}
 
@@ -110,6 +104,14 @@ public class Incident {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public User getAssignedResponder() {
+        return assignedResponder;
+    }
+
+    public void setAssignedResponder(User assignedResponder) {
+        this.assignedResponder = assignedResponder;
     }
 
     public User getReportedBy() {

@@ -3,7 +3,9 @@ package com.isufst.mdrrmosystem.controller;
 import com.isufst.mdrrmosystem.request.DispatchIncidentRequest;
 import com.isufst.mdrrmosystem.request.IncidentRequest;
 import com.isufst.mdrrmosystem.response.IncidentResponse;
+import com.isufst.mdrrmosystem.response.ResponseActionResponse;
 import com.isufst.mdrrmosystem.service.IncidentService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,13 +21,18 @@ public class IncidentController {
     }
 
     @PostMapping
-    public IncidentResponse newIncident(@RequestBody IncidentRequest incidentRequest) {
+    public IncidentResponse newIncident(@Valid @RequestBody IncidentRequest incidentRequest) {
         return incidentService.newIncident(incidentRequest);
     }
 
     @GetMapping
     public List<IncidentResponse> getAllIncidents() {
         return incidentService.getAllIncidents();
+    }
+
+    @GetMapping("/{id}/actions")
+    public List<ResponseActionResponse> getIncidentActions(@PathVariable long id) {
+        return incidentService.getIncidentsByActions(id);
     }
 
     @PutMapping("/{id}/resolve")

@@ -2,6 +2,7 @@ package com.isufst.mdrrmosystem.service;
 
 import com.isufst.mdrrmosystem.entity.Barangay;
 import com.isufst.mdrrmosystem.repository.BarangayRepository;
+import com.isufst.mdrrmosystem.response.BarangayResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,7 +22,16 @@ public class BarangayService {
         return barangayRepository.save(barangay);
     }
 
+    @Transactional(readOnly = true)
     public List<Barangay> findAllBarangay() {
         return barangayRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public List<BarangayResponse> getBatadBarangays() {
+        return barangayRepository.findActiveBatadBarangays()
+                .stream()
+                .map(barangay -> new BarangayResponse(barangay.getId(), barangay.getName()))
+                .toList();
     }
 }

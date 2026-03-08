@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/incidents/{incidentId}/actions")
+@RequestMapping("/api/response-actions/{incidentId}/actions")
 public class ResponseActionController {
 
     private final ResponseActionService responseActionService;

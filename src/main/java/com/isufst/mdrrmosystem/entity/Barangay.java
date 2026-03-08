@@ -9,7 +9,23 @@ public class Barangay {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(nullable = false, unique = true, name = "psgc_code")
+    private String psgcCode;
+
+    @Column(nullable = false, name = "municipality_name")
+    private String municipalityName;
+
+    @Column(nullable = false, name = "province_name")
+    private String provinceName;
+
+    @Column(nullable = false, name = "is_active")
+    private Boolean active = true;
+
+    @Column(nullable = false)
     private String name;
+
+    @Column(nullable = false)
     private int population;
 
     @Column(name = "flood_prone")
@@ -17,6 +33,8 @@ public class Barangay {
 
     @Column(name = "landslide_prone")
     private boolean landslideProne;
+
+    @Column(name = "coastal")
     private boolean coastal;
 
     @Column(name = "risk_level")
@@ -24,7 +42,7 @@ public class Barangay {
 
     public Barangay() {}
 
-    public Barangay(String name, int population,  boolean floodProne, boolean landslideProne, boolean coastal) {
+    public Barangay(String name, int population, boolean floodProne, boolean landslideProne, boolean coastal) {
         this.name = name;
         this.population = population;
         this.floodProne = floodProne;
@@ -38,6 +56,38 @@ public class Barangay {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getPsgcCode() {
+        return psgcCode;
+    }
+
+    public void setPsgcCode(String psgcCode) {
+        this.psgcCode = psgcCode;
+    }
+
+    public String getMunicipalityName() {
+        return municipalityName;
+    }
+
+    public void setMunicipalityName(String municipalityName) {
+        this.municipalityName = municipalityName;
+    }
+
+    public String getProvinceName() {
+        return provinceName;
+    }
+
+    public void setProvinceName(String provinceName) {
+        this.provinceName = provinceName;
+    }
+
+    public Boolean getActive() {
+        return active;
+    }
+
+    public void setActive(Boolean active) {
+        this.active = active;
     }
 
     public String getName() {
