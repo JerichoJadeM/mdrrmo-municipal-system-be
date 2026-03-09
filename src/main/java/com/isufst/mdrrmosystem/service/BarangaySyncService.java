@@ -1,6 +1,7 @@
 package com.isufst.mdrrmosystem.service;
 
 import com.isufst.mdrrmosystem.entity.Barangay;
+import com.isufst.mdrrmosystem.external.psgc.LocalJsonPsgcClientImpl;
 import com.isufst.mdrrmosystem.external.psgc.PsgcClient;
 import com.isufst.mdrrmosystem.external.psgc.dto.PsgcBarangayDto;
 import com.isufst.mdrrmosystem.repository.BarangayRepository;
@@ -16,10 +17,12 @@ public class BarangaySyncService{
 
     private final BarangayRepository barangayRepository;
     private final PsgcClient psgcClient;
+    private final LocalJsonPsgcClientImpl localJsonPsgcClient;
 
-    public BarangaySyncService(BarangayRepository barangayRepository, PsgcClient psgcClient) {
+    public BarangaySyncService(BarangayRepository barangayRepository, PsgcClient psgcClient, LocalJsonPsgcClientImpl localJsonPsgcClient) {
         this.barangayRepository = barangayRepository;
         this.psgcClient = psgcClient;
+        this.localJsonPsgcClient = localJsonPsgcClient;
     }
 
     
@@ -31,7 +34,8 @@ public class BarangaySyncService{
     
     @Transactional
     public BarangaySyncResult syncBarangaysByMunicipality(String municipalityName, String provinceName) {
-        List<PsgcBarangayDto> externalBarangays = psgcClient.getBarangaysByCityMunicipality(municipalityName);
+        List<PsgcBarangayDto> externalBarangays = fetchWithFallback(municipalityName);
+                //psgcClient.getBarangaysByCityMunicipality(municipalityName);
 
         if (externalBarangays == null) {
             externalBarangays = Collections.emptyList();
@@ -107,5 +111,24 @@ public class BarangaySyncService{
                 municipalityName,
                 provinceName
         );
+    }
+
+    private List<PsgcBarangayDto> fetchWithFallback(String municipalityName) {
+        try {
+            List<PsgcBarangayDto> external = psgcClient.getBarangaysByCityMunicipality(municipalityName);
+            // FIX: Return if we actually got data!
+            if (external != null && !external.isEmpty()) {
+                return external;
+            }
+        } catch (Exception e) {
+            System.err.println("Cloud API failed, trying local fallback: " + e.getMessage());
+        }
+
+        // Fallback logic
+        if ("Batad".equalsIgnoreCase(municipalityName)) {
+            return localJsonPsgcClient.getBatadBarangays();
+        }
+
+        return Collections.emptyList();
     }
 }

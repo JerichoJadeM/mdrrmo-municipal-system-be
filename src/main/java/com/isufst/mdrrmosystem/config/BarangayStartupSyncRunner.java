@@ -15,6 +15,11 @@ public class BarangayStartupSyncRunner implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        barangaySyncService.syncBatadBarangays();
+        try{
+            barangaySyncService.syncBatadBarangays();
+        } catch (Exception ex){
+            System.err.println("Startup barangay sync skipped: " + ex.getMessage());
+        }
+
     }
 }

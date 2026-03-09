@@ -1,0 +1,18 @@
+[
+  {
+    "code": "BATAD001",
+    "name": "Alapasco",
+    "status": "active",
+    "region": "Region VI (Western Visayas)",
+    "province": "Iloilo",
+    "city_municipality": "Batad"
+  },
+  {
+    "code": "BATAD002",
+    "name": "Banbanan",
+    "status": "active",
+    "region": "Region VI (Western Visayas)",
+    "province": "Iloilo",
+    "city_municipality": "Batad"
+  }
+]

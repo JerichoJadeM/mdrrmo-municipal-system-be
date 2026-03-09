@@ -5,6 +5,7 @@ import com.isufst.mdrrmosystem.external.psgc.dto.PsgcResponseWrapper;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriUtils;
 
@@ -25,16 +26,21 @@ public class PsgcCloudClientImpl implements PsgcClient{
     public List<PsgcBarangayDto> getBarangaysByCityMunicipality(String cityMunicipalityName) {
         // Note: You may need the specific city/municipality CODE,
         // but if you're using names, ensure the API supports it.
-        String encodedName = UriUtils.encodePathSegment(cityMunicipalityName, StandardCharsets.UTF_8);
-        String url = "https://psgc.cloud/api/v2/cities-municipalities/" + encodedName + "/barangays";
+        try{
+            String encodedName = UriUtils.encodePathSegment(cityMunicipalityName, StandardCharsets.UTF_8);
+            String url = "https://psgc.cloud/api/v2/cities-municipalities/" + encodedName + "/barangays";
 
-        PsgcResponseWrapper response = restTemplate.exchange(
-                url,
-                HttpMethod.GET,
-                null,
-                new ParameterizedTypeReference<PsgcResponseWrapper>() {}
-        ).getBody();
+            PsgcResponseWrapper response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    null,
+                    new ParameterizedTypeReference<PsgcResponseWrapper>() {}
+            ).getBody();
 
-        return (response != null) ? response.data() : Collections.emptyList();
+            return (response != null) ? response.data() : Collections.emptyList();
+
+        } catch (RestClientException e) {
+            throw new IllegalStateException("PSGC Cloud source failed: " + e.getMessage(), e);
+        }
     }
 }
