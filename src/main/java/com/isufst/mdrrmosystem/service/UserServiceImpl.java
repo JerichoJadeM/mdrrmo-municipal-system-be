@@ -9,6 +9,7 @@ import com.isufst.mdrrmosystem.response.ResponderResponse;
 import com.isufst.mdrrmosystem.response.UserResponse;
 import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,12 +36,18 @@ public class UserServiceImpl implements UserService{
     public UserResponse getUserInfo() {
         User user = findAuthenticatedUser.getAuthenticatedUser();
 
+        List<String> authorities = user.getAuthorities()
+                .stream()
+                .map(GrantedAuthority::getAuthority)
+                .toList();
+
         return new UserResponse(
                 user.getId(),
-                user.getFirstName() + " " + user.getLastName(),
+                user.getFullName(),
                 user.getNumber(),
                 user.getEmail(),
-                user.getAuthorities().stream().map(auth -> (Authority) auth).toList());
+                authorities
+        );
     }
 
     @Override

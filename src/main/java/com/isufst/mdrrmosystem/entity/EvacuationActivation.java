@@ -23,7 +23,7 @@ public class EvacuationActivation {
     @Column(name = "closed_at")
     private LocalDateTime closedAt;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "incident_id")
     private Incident incident;
 

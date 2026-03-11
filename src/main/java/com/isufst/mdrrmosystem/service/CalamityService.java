@@ -10,11 +10,13 @@ import com.isufst.mdrrmosystem.request.CalamityRequest;
 import com.isufst.mdrrmosystem.response.CalamityResponse;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -34,21 +36,51 @@ public class CalamityService {
 
     @Transactional
     public CalamityResponse addCalamityRecord(CalamityRequest calamityRequest) {
-        Barangay barangay = barangayRepository.findById(calamityRequest.barangayId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Barangay id not found"));
+        Calamity calamity = new Calamity();
+        calamity.setStatus("ACTIVE"); // Default status for new records
 
-        validateBatadBarangay(barangay);
+        // Pass the new object to the shared logic
+        mapRequestToEntity(calamity, calamityRequest);
 
+        Calamity savedCalamity = calamityRepository.save(calamity);
+        return mapToResponse(savedCalamity);
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @Transactional
+    public CalamityResponse updateCalamityRecord(long calamityId, CalamityRequest calamityRequest) {
+        // 1. Find existing record
+        Calamity existingCalamity = calamityRepository.findById(calamityId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Calamity Id not found: " + calamityId));
+
+        // 2. Use the shared logic to update fields (avoids code duplication)
+        mapRequestToEntity(existingCalamity, calamityRequest);
+
+        // 3. Save and return
+        Calamity updatedCalamity = calamityRepository.save(existingCalamity);
+        return mapToResponse(updatedCalamity);
+    }
+
+    /**
+     * Shared logic for both Create and Update operations.
+     * This ensures validations are consistent across the system.
+     */
+    private void mapRequestToEntity(Calamity calamity, CalamityRequest calamityRequest) {
         User coordinator = null;
         if (calamityRequest.coordinatorId() != null) {
             coordinator = userRepository.findById(calamityRequest.coordinatorId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Coordinator id not found"));
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                            "Coordinator id not found"));
         }
 
-        Calamity calamity = new Calamity();
+        String affectedAreaType = calamityRequest.affectedAreaType().trim().toUpperCase();
+
         calamity.setType(calamityRequest.type().trim());
-        calamity.setStatus("ACTIVE");
-        calamity.setBarangay(barangay);
+        calamity.setEventName(calamityRequest.eventName() != null && !calamityRequest.eventName().isBlank()
+                ? calamityRequest.eventName().trim()
+                : null);
+        calamity.setAffectedAreaTypes(affectedAreaType);
         calamity.setCoordinator(coordinator);
         calamity.setSeverity(calamityRequest.severity().trim().toUpperCase());
         calamity.setDate(calamityRequest.date());
@@ -56,24 +88,71 @@ public class CalamityService {
         calamity.setCasualties(calamityRequest.casualties());
         calamity.setDescription(calamityRequest.description().trim());
 
-        Calamity savedCalamity = calamityRepository.save(calamity);
-        return mapToResponse(savedCalamity);
+        // Handle affected areas logic
+        if ("BARANGAY".equals(affectedAreaType)) {
+            if (calamityRequest.barangayId() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Barangay is required for BARANGAY affected area type");
+            }
+            Barangay barangay = barangayRepository.findById(calamityRequest.barangayId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Barangay not found"));
+            validateBatadBarangay(barangay);
+            calamity.setBarangay(barangay);
+
+            replaceAffectedBarangays(calamity, List.of(barangay));
+
+        } else if ("MULTI_BARANGAY".equals(affectedAreaType)) {
+            if (calamityRequest.barangayIds() == null || calamityRequest.barangayIds().isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one barangay is required");
+            }
+            List<Barangay> barangays = new ArrayList<>();
+            for (Long bId : calamityRequest.barangayIds()) {
+                Barangay b = barangayRepository.findById(bId)
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Barangay not found: " + bId));
+                validateBatadBarangay(b);
+                barangays.add(b);
+            }
+            calamity.setBarangay(barangays.get(0));
+            replaceAffectedBarangays(calamity, barangays);
+
+        } else if ("MUNICIPALITY".equals(affectedAreaType)) {
+            calamity.setBarangay(null);
+            replaceAffectedBarangays(calamity, barangayRepository.findActiveBatadBarangays());
+        } else {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid affected area type");
+        }
     }
+
+    // helper method for mapToRequestEntity
+    private void replaceAffectedBarangays(Calamity calamity, List<Barangay> barangays) {
+       if(calamity.getAffectedBarangays() == null){
+           calamity.setAffectedBarangays(new ArrayList<>());
+       } else {
+           calamity.getAffectedBarangays().clear();
+       }
+
+       calamity.getAffectedBarangays().addAll(barangays);
+    }
+
+    // --- Utility Methods ---
 
     @Transactional(readOnly = true)
     public List<CalamityResponse> getAllCalamityRecords() {
         return calamityRepository.findAll(Sort.by(Sort.Direction.DESC, "date"))
-                .stream()
-                .map(this::mapToResponse)
-                .toList();
+                .stream().map(this::mapToResponse).toList();
     }
 
     @Transactional(readOnly = true)
     public long getCalamitiesThisYear() {
-        LocalDate start = LocalDate.now().withDayOfYear(1);
-        LocalDate end = LocalDate.now();
+        return calamityRepository.countByDateBetween(LocalDate.now().withDayOfYear(1), LocalDate.now());
+    }
 
-        return calamityRepository.countByDateBetween(start, end);
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @Transactional
+    public void deleteCalamityRecord(long calamityId) {
+        Calamity calamity = calamityRepository.findById(calamityId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Calamity not found"));
+        calamityRepository.delete(calamity);
     }
 
     private void validateBatadBarangay(Barangay barangay) {
@@ -84,11 +163,24 @@ public class CalamityService {
     }
 
     private CalamityResponse mapToResponse(Calamity calamity) {
+        List<String> affectedBarangayNames = calamity.getAffectedBarangays() != null
+                ? calamity.getAffectedBarangays().stream().map(Barangay::getName).toList()
+                : List.of();
+
+        List<Long> affectedBarangayIds = calamity.getAffectedBarangays() != null
+                ? calamity.getAffectedBarangays().stream().map(Barangay::getId).toList()
+                : List.of();
+
         return new CalamityResponse(
                 calamity.getId(),
                 calamity.getType(),
+                calamity.getEventName(),
                 calamity.getStatus(),
+                calamity.getAffectedAreaTypes(),
+                calamity.getBarangay() != null ? calamity.getBarangay().getId() : null,
                 calamity.getBarangay() != null ? calamity.getBarangay().getName() : null,
+                affectedBarangayNames,
+                affectedBarangayIds,
                 calamity.getSeverity(),
                 calamity.getDate(),
                 calamity.getDamageCost(),
@@ -97,5 +189,15 @@ public class CalamityService {
                 calamity.getCoordinator() != null ? calamity.getCoordinator().getId() : null,
                 calamity.getCoordinator() != null ? calamity.getCoordinator().getFullName() : null
         );
+    }
+
+
+    // delete this later
+    @Transactional(readOnly = true)
+    public CalamityResponse getCalamityById(long calamityId) {
+        Calamity calamity = calamityRepository.findById(calamityId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Calamity not found: " + calamityId));
+
+        return mapToResponse(calamity);
     }
 }

@@ -13,12 +13,12 @@ public record IncidentRequest(
         @NotNull(message = "Barangay is required")
         Long barangayId,
 
-        Long assignedResponderId,
-
         @NotBlank(message = "Severity is required")
         String severity,
 
         @NotBlank(message = "Description is required")
-        String description
+        String description,
+
+        Long assignedResponderId
 ) {
 }

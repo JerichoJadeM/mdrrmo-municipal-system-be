@@ -4,10 +4,7 @@ import com.isufst.mdrrmosystem.entity.Barangay;
 import com.isufst.mdrrmosystem.entity.Incident;
 import com.isufst.mdrrmosystem.entity.ResponseAction;
 import com.isufst.mdrrmosystem.entity.User;
-import com.isufst.mdrrmosystem.repository.BarangayRepository;
-import com.isufst.mdrrmosystem.repository.IncidentRepository;
-import com.isufst.mdrrmosystem.repository.ResponseActionRepository;
-import com.isufst.mdrrmosystem.repository.UserRepository;
+import com.isufst.mdrrmosystem.repository.*;
 import com.isufst.mdrrmosystem.request.DispatchIncidentRequest;
 import com.isufst.mdrrmosystem.request.IncidentRequest;
 import com.isufst.mdrrmosystem.response.IncidentResponse;
@@ -15,6 +12,7 @@ import com.isufst.mdrrmosystem.response.ResponseActionResponse;
 import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -30,17 +28,23 @@ public class IncidentService {
     private final UserRepository userRepository;
     private final ResponseActionRepository responseActionRepository;
     private final BarangayRepository barangayRepository;
+    private final EvacuationActivationRepository evacuationActivationRepository;
+    private final ReliefDistributionRepository reliefDistributionRepository;
 
     public IncidentService(IncidentRepository incidentRepository,
                            FindAuthenticatedUser findAuthenticatedUser,
                            UserRepository userRepository,
                            ResponseActionRepository responseActionRepository,
-                           BarangayRepository barangayRepository) {
+                           BarangayRepository barangayRepository,
+                           EvacuationActivationRepository evacuationActivationRepository,
+                           ReliefDistributionRepository reliefDistributionRepository) {
         this.incidentRepository = incidentRepository;
         this.findAuthenticatedUser = findAuthenticatedUser;
         this.userRepository = userRepository;
         this.responseActionRepository = responseActionRepository;
         this.barangayRepository = barangayRepository;
+        this.evacuationActivationRepository = evacuationActivationRepository;
+        this.reliefDistributionRepository = reliefDistributionRepository;
     }
 
     @Transactional
@@ -239,6 +243,7 @@ public class IncidentService {
         return new IncidentResponse(
                 incident.getId(),
                 incident.getType(),
+                incident.getBarangay() != null ? incident.getBarangay().getId() : null,
                 incident.getBarangay() != null ? incident.getBarangay().getName() : null,
                 incident.getSeverity(),
                 incident.getStatus(),
@@ -248,4 +253,60 @@ public class IncidentService {
                 incident.getAssignedResponder() != null ? incident.getAssignedResponder().getFullName() : null
         );
     }
+
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @Transactional
+    public IncidentResponse updateIncident(long incidentId, IncidentRequest incidentRequest) {
+        Incident incident = incidentRepository.findById(incidentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
+
+        Barangay barangay = null;
+        if (incidentRequest.barangayId() != null) {
+            barangay = barangayRepository.findById(incidentRequest.barangayId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Barangay id not found"));
+
+        }
+
+        User assignedResponder = null;
+        if (incidentRequest.assignedResponderId() != null) {
+            assignedResponder = userRepository.findById(incidentRequest.assignedResponderId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Assigned responder not found"));
+        }
+
+        incident.setType(incidentRequest.type().trim());
+        incident.setBarangay(barangay);
+        incident.setAssignedResponder(assignedResponder);
+
+        if (incidentRequest.severity() != null && !incidentRequest.severity().isBlank()) {
+            incident.setSeverity(incidentRequest.severity().trim().toUpperCase());
+        }
+
+        if (incidentRequest.description() != null && !incidentRequest.description().isBlank()) {
+            incident.setDescription(incidentRequest.description().trim());
+        }
+
+        return mapToResponse(incidentRepository.save(incident));
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @Transactional
+    public void deleteIncident(long incidentId) {
+        Incident incident = incidentRepository.findById(incidentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
+
+        reliefDistributionRepository.deleteByIncidentId(incidentId);
+        reliefDistributionRepository.flush();
+
+        evacuationActivationRepository.deleteByIncidentId(incidentId);
+        evacuationActivationRepository.flush();
+
+        responseActionRepository.deleteAll(
+                responseActionRepository.findByIncidentIdOrderByActionTimeDesc(incidentId)
+        );
+        responseActionRepository.flush();
+
+        incidentRepository.delete(incident);
+        incidentRepository.flush();
+    }
+
 }

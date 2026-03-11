@@ -49,4 +49,18 @@ public class IncidentController {
     public IncidentResponse markArrived(@PathVariable long id) {
         return incidentService.markResponderArrived(id);
     }
+
+    @PutMapping("/{id}")
+    public IncidentResponse updateIncident(
+            @PathVariable long id,
+            @Valid @RequestBody IncidentRequest incidentRequest
+    ) {
+        return incidentService.updateIncident(id, incidentRequest);
+    }
+
+    @DeleteMapping("/{id}")
+    public void deleteIncident(@PathVariable long id) {
+        incidentService.deleteIncident(id);
+    }
+
 }

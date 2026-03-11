@@ -5,14 +5,21 @@ import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 public record CalamityRequest (
 
         @NotBlank(message = "Type is required")
         String type,
 
-        @NotNull(message = "Barangay is required")
+        String eventName,
+
+        @NotBlank(message = "Affected area type is required")
+        String affectedAreaType,
+
         Long barangayId,
+
+        List<Long> barangayIds,
 
         Long coordinatorId,
 
