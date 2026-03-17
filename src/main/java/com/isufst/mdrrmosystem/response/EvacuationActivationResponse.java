@@ -6,12 +6,16 @@ import java.time.LocalDateTime;
 
 public record EvacuationActivationResponse(
         Long id,
-        String centerName,
-        Barangay barangay,
-        int capacity,
-        int currentEvacuees,
+        Integer currentEvacuees,
         String status,
         LocalDateTime openedAt,
-        LocalDateTime closedAt
+        LocalDateTime closedAt,
+        Long incidentId,
+        Long calamityId,
+        Long centerId,
+        String centerName,
+        Integer centerCapacity,
+        String centerBarangayName,
+        String centerLocationDetails
 ) {
 }

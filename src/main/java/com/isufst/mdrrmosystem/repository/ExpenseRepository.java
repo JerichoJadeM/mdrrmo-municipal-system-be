@@ -30,4 +30,10 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
     """)
     List<CategoryBreakdownResponse> getCategoryBreakdown();
 
+    @Query("""
+        SELECT COALESCE(SUM(e.amount), 0)
+        FROM Expense e
+        WHERE e.incident.id = :incidentId
+    """)
+    Double sumByIncidentId(@Param("incidentId") Long incidentId);
 }

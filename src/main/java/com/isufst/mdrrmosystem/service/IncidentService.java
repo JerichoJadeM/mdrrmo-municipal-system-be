@@ -30,6 +30,7 @@ public class IncidentService {
     private final BarangayRepository barangayRepository;
     private final EvacuationActivationRepository evacuationActivationRepository;
     private final ReliefDistributionRepository reliefDistributionRepository;
+    private final OperationHistoryService operationHistoryService;
 
     public IncidentService(IncidentRepository incidentRepository,
                            FindAuthenticatedUser findAuthenticatedUser,
@@ -37,7 +38,8 @@ public class IncidentService {
                            ResponseActionRepository responseActionRepository,
                            BarangayRepository barangayRepository,
                            EvacuationActivationRepository evacuationActivationRepository,
-                           ReliefDistributionRepository reliefDistributionRepository) {
+                           ReliefDistributionRepository reliefDistributionRepository,
+                           OperationHistoryService operationHistoryService) {
         this.incidentRepository = incidentRepository;
         this.findAuthenticatedUser = findAuthenticatedUser;
         this.userRepository = userRepository;
@@ -45,6 +47,7 @@ public class IncidentService {
         this.barangayRepository = barangayRepository;
         this.evacuationActivationRepository = evacuationActivationRepository;
         this.reliefDistributionRepository = reliefDistributionRepository;
+        this.operationHistoryService = operationHistoryService;
     }
 
     @Transactional
@@ -70,6 +73,7 @@ public class IncidentService {
         incident.setDescription(incidentRequest.description().trim());
         incident.setReportedBy(findAuthenticatedUser.getAuthenticatedUser());
 
+        String oldStatus = incident.getStatus();
         Incident savedIncident = incidentRepository.save(incident);
 
         if (assignedResponder != null) {
@@ -84,6 +88,17 @@ public class IncidentService {
             action.setResponder(assignedResponder);
             responseActionRepository.save(action);
         }
+
+        operationHistoryService.log(
+                "INCIDENT",
+                savedIncident.getId(),
+                "STATUS_CHANGED",
+                oldStatus,
+                savedIncident.getStatus(),
+                "Incident moved to ON_SITE",
+                null,
+                null
+        );
 
         return mapToResponse(savedIncident);
     }
@@ -127,8 +142,9 @@ public class IncidentService {
                     "Only on-site or in-progress incidents can be resolved");
         }
 
+        String oldStatus = incident.getStatus();
         incident.setStatus("RESOLVED");
-        incidentRepository.save(incident);
+        Incident savedIncident = incidentRepository.save(incident);
 
         ResponseAction action = new ResponseAction();
         action.setActionType("RESOLVE");
@@ -149,7 +165,19 @@ public class IncidentService {
         //     userRepository.save(responder);
         // }
 
-        return mapToResponse(incident);
+
+        operationHistoryService.log(
+                "INCIDENT",
+                savedIncident.getId(),
+                "STATUS_CHANGED",
+                oldStatus,
+                savedIncident.getStatus(),
+                "Incident moved to ON_SITE",
+                null,
+                null
+        );
+
+        return mapToResponse(savedIncident);
     }
 
     @Transactional
@@ -165,8 +193,9 @@ public class IncidentService {
         }
 
         incident.setAssignedResponder(responder);
+        String oldStatus = incident.getStatus();
         incident.setStatus("IN_PROGRESS");
-        incidentRepository.save(incident);
+        Incident savedIncident = incidentRepository.save(incident);
 
         // Optional:
         // responder.setAssignmentStatus("BUSY");
@@ -181,7 +210,18 @@ public class IncidentService {
 
         responseActionRepository.save(action);
 
-        return mapToResponse(incident);
+        operationHistoryService.log(
+                "INCIDENT",
+                savedIncident.getId(),
+                "STATUS_CHANGED",
+                oldStatus,
+                savedIncident.getStatus(),
+                "Incident moved to ON_SITE",
+                null,
+                null
+        );
+
+        return mapToResponse(savedIncident);
     }
 
     @Transactional
@@ -201,8 +241,9 @@ public class IncidentService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No responder assigned to this incident");
         }
 
+        String oldStatus = incident.getStatus();
         incident.setStatus("ON_SITE");
-        incidentRepository.save(incident);
+        Incident savedIncident = incidentRepository.save(incident);
 
         ResponseAction action = new ResponseAction();
         action.setActionType("ARRIVAL");
@@ -216,7 +257,18 @@ public class IncidentService {
 
         responseActionRepository.save(action);
 
-        return mapToResponse(incident);
+        operationHistoryService.log(
+                "INCIDENT",
+                savedIncident.getId(),
+                "STATUS_CHANGED",
+                oldStatus,
+                savedIncident.getStatus(),
+                "Incident moved to ON_SITE",
+                null,
+                null
+        );
+
+        return mapToResponse(savedIncident);
     }
 
     private void validateBatadBarangay(Barangay barangay) {

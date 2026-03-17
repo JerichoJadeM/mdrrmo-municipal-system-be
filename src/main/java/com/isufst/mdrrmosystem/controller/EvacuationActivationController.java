@@ -4,6 +4,7 @@ import com.isufst.mdrrmosystem.request.EvacuationActivationRequest;
 import com.isufst.mdrrmosystem.request.UpdateEvacueesRequest;
 import com.isufst.mdrrmosystem.response.EvacuationActivationResponse;
 import com.isufst.mdrrmosystem.service.EvacuationActivationService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -35,10 +36,11 @@ public class EvacuationActivationController {
 
     @PutMapping("/{activationId}/evacuees")
     public EvacuationActivationResponse updateEvacuees(
+            @PathVariable Long incidentId,
             @PathVariable Long activationId,
-            @RequestBody UpdateEvacueesRequest request) {
+            @Valid @RequestBody UpdateEvacueesRequest request) {
 
-        return service.updateEvacuees(activationId, request);
+        return service.updateEvacuees(incidentId, activationId, request);
     }
 
     @PutMapping("/{activationId}/close")

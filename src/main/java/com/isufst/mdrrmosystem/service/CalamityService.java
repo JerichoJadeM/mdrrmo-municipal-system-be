@@ -7,6 +7,7 @@ import com.isufst.mdrrmosystem.repository.BarangayRepository;
 import com.isufst.mdrrmosystem.repository.CalamityRepository;
 import com.isufst.mdrrmosystem.repository.UserRepository;
 import com.isufst.mdrrmosystem.request.CalamityRequest;
+import com.isufst.mdrrmosystem.request.CalamityTransitionRequest;
 import com.isufst.mdrrmosystem.response.CalamityResponse;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -25,13 +26,16 @@ public class CalamityService {
     private final CalamityRepository calamityRepository;
     private final BarangayRepository barangayRepository;
     private final UserRepository userRepository;
+    private final OperationHistoryService operationHistoryService;
 
     public CalamityService(CalamityRepository calamityRepository,
                            BarangayRepository barangayRepository,
-                           UserRepository userRepository) {
+                           UserRepository userRepository,
+                           OperationHistoryService operationHistoryService) {
         this.calamityRepository = calamityRepository;
         this.barangayRepository = barangayRepository;
         this.userRepository = userRepository;
+        this.operationHistoryService = operationHistoryService;
     }
 
     @Transactional
@@ -60,6 +64,108 @@ public class CalamityService {
         // 3. Save and return
         Calamity updatedCalamity = calamityRepository.save(existingCalamity);
         return mapToResponse(updatedCalamity);
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @Transactional
+    public CalamityResponse markCalamityMonitoring(long calamityId, CalamityTransitionRequest request) {
+        Calamity calamity = calamityRepository.findById(calamityId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Calamity Id not found: " + calamityId));
+
+        if (!"ACTIVE".equalsIgnoreCase(calamity.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Only ACTIVE calamities can be moved to MONITORING");
+        }
+
+        applyTransitionUpdates(calamity, request);
+        String oldStatus = calamity.getStatus();
+        calamity.setStatus("MONITORING");
+        Calamity saved = calamityRepository.save(calamity);
+
+        operationHistoryService.log(
+                "CALAMITY",
+                saved.getId(),
+                "STATUS_CHANGED",
+                oldStatus,
+                saved.getStatus(),
+                "Calamity moved to MONITORING",
+                null,
+                null
+        );
+
+        return mapToResponse(saved);
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @Transactional
+    public CalamityResponse markCalamityResolved(long calamityId, CalamityTransitionRequest request) {
+        Calamity calamity = calamityRepository.findById(calamityId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Calamity Id not found: " + calamityId));
+
+        if (!"ACTIVE".equalsIgnoreCase(calamity.getStatus())
+                && !"MONITORING".equalsIgnoreCase(calamity.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Only ACTIVE or MONITORING calamities can be moved to RESOLVED");
+        }
+
+        applyTransitionUpdates(calamity, request);
+
+        String oldStatus = calamity.getStatus();
+        calamity.setStatus("RESOLVED");
+        Calamity saved = calamityRepository.save(calamity);
+
+        operationHistoryService.log(
+                "CALAMITY",
+                saved.getId(),
+                "STATUS_CHANGED",
+                oldStatus,
+                saved.getStatus(),
+                "Calamity moved to RESOLVED",
+                null,
+                null
+        );
+
+        return mapToResponse(saved);
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @Transactional
+    public CalamityResponse markCalamityEnded(long calamityId, CalamityTransitionRequest request) {
+        Calamity calamity = calamityRepository.findById(calamityId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Calamity Id not found: " + calamityId));
+
+        if (!"RESOLVED".equalsIgnoreCase(calamity.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Only RESOLVED calamities can be moved to ENDED");
+        }
+
+        applyTransitionUpdates(calamity, request);
+
+        String oldStatus = calamity.getStatus();
+        calamity.setStatus("ENDED");
+        Calamity saved = calamityRepository.save(calamity);
+
+        operationHistoryService.log(
+                "CALAMITY",
+                saved.getId(),
+                "STATUS_CHANGED",
+                oldStatus,
+                saved.getStatus(),
+                "Calamity moved to ENDED",
+                null,
+                null
+        );
+
+        return mapToResponse(saved);
+    }
+
+    private void applyTransitionUpdates(Calamity calamity, CalamityTransitionRequest request) {
+        if (request != null && request.description() != null && !request.description().isBlank()) {
+            calamity.setDescription(request.description().trim());
+        }
     }
 
     /**

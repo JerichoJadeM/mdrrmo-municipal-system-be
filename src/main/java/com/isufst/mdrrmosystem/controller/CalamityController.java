@@ -1,6 +1,7 @@
 package com.isufst.mdrrmosystem.controller;
 
 import com.isufst.mdrrmosystem.request.CalamityRequest;
+import com.isufst.mdrrmosystem.request.CalamityTransitionRequest;
 import com.isufst.mdrrmosystem.response.CalamityResponse;
 import com.isufst.mdrrmosystem.service.CalamityService;
 import jakarta.validation.Valid;
@@ -43,5 +44,23 @@ public class CalamityController {
     @GetMapping("/{id}")
     public CalamityResponse getCalamityById(@PathVariable long id) {
         return calamityService.getCalamityById(id);
+    }
+
+    @PutMapping("/{id}/monitor")
+    public CalamityResponse markMonitoring(@PathVariable long id,
+                                           @RequestBody(required = false) CalamityTransitionRequest request) {
+        return calamityService.markCalamityMonitoring(id, request);
+    }
+
+    @PutMapping("/{id}/resolve")
+    public CalamityResponse markResolved(@PathVariable long id,
+                                         @RequestBody(required = false) CalamityTransitionRequest request) {
+        return calamityService.markCalamityResolved(id, request);
+    }
+
+    @PutMapping("/{id}/end")
+    public CalamityResponse markEnded(@PathVariable long id,
+                                      @RequestBody(required = false) CalamityTransitionRequest request) {
+        return calamityService.markCalamityEnded(id, request);
     }
 }

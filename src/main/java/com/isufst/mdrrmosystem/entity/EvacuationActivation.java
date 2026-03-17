@@ -28,8 +28,20 @@ public class EvacuationActivation {
     private Incident incident;
 
     @ManyToOne
+    @JoinColumn(name = "calamity_id")
+    private Calamity calamity;
+
+    @ManyToOne
     @JoinColumn(name = "center_id")
     private EvacuationCenter center;
+
+    public Calamity getCalamity() {
+        return calamity;
+    }
+
+    public void setCalamity(Calamity calamity) {
+        this.calamity = calamity;
+    }
 
     public Long getId() {
         return id;
