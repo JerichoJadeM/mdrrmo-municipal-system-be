@@ -8,4 +8,7 @@ import java.util.Optional;
 
 public interface BudgetRepository extends JpaRepository<Budget, Long> {
     List<Budget> findByYear(int year);
+
+    Optional<Budget> findFirstByYear(int year);
+    boolean existsByYear(int year);
 }

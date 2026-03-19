@@ -5,6 +5,8 @@ import com.isufst.mdrrmosystem.response.CategoryResponse;
 import com.isufst.mdrrmosystem.service.CategoryService;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/budgets/{budgetId}/categories")
 public class CategoryController {
@@ -19,5 +21,10 @@ public class CategoryController {
     public CategoryResponse addCategory(@PathVariable long budgetId,
                                         @RequestBody CategoryRequest categoryRequest) {
         return categoryService.addCategory(budgetId, categoryRequest);
+    }
+
+    @GetMapping
+    public List<CategoryResponse> getCategories(@PathVariable long budgetId) {
+        return categoryService.getCategoriesByBudget(budgetId);
     }
 }

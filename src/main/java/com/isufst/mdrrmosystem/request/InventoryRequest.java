@@ -5,6 +5,8 @@ public record InventoryRequest(
         String category,
         int totalQuantity,
         String unit,
-        String location
+        String location,
+        Integer reorderLevel,
+        Boolean criticalItem
 ) {
 }

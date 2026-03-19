@@ -7,6 +7,9 @@ public record InventoryResponse(
         int totalQuantity,
         int availableQuantity,
         String unit,
-        String location
+        String location,
+        Integer reorderLevel,
+        boolean criticalItem,
+        String stockStatus
 ) {
 }

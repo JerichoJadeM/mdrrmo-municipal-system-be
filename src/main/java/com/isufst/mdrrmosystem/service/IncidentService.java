@@ -93,9 +93,9 @@ public class IncidentService {
                 "INCIDENT",
                 savedIncident.getId(),
                 "STATUS_CHANGED",
-                oldStatus,
+                null,
                 savedIncident.getStatus(),
-                "Incident moved to ON_SITE",
+                "Incident created with status ONGOING",
                 null,
                 null
         );
@@ -172,7 +172,7 @@ public class IncidentService {
                 "STATUS_CHANGED",
                 oldStatus,
                 savedIncident.getStatus(),
-                "Incident moved to ON_SITE",
+                "Incident moved to RESOLVED",
                 null,
                 null
         );
@@ -216,7 +216,7 @@ public class IncidentService {
                 "STATUS_CHANGED",
                 oldStatus,
                 savedIncident.getStatus(),
-                "Incident moved to ON_SITE",
+                "Incident moved to IN_PROGRESS",
                 null,
                 null
         );

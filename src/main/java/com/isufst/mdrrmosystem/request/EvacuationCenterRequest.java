@@ -2,10 +2,14 @@ package com.isufst.mdrrmosystem.request;
 
 import com.isufst.mdrrmosystem.entity.Barangay;
 
+import java.math.BigDecimal;
+
 public record EvacuationCenterRequest(
         String name,
-        Barangay barangay,
+        Long barangayId,
         int capacity,
-        String locationDetails
-) {
-}
+        String locationDetails,
+        BigDecimal latitude,
+        BigDecimal longitude,
+        String status
+) { }

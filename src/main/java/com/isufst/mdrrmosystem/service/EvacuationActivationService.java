@@ -9,7 +9,6 @@ import com.isufst.mdrrmosystem.repository.EvacuationActivationRepository;
 import com.isufst.mdrrmosystem.repository.EvacuationCenterRepository;
 import com.isufst.mdrrmosystem.repository.IncidentRepository;
 import com.isufst.mdrrmosystem.request.EvacuationActivationRequest;
-import com.isufst.mdrrmosystem.request.EvacueeUpdateRequest;
 import com.isufst.mdrrmosystem.request.UpdateEvacueesRequest;
 import com.isufst.mdrrmosystem.response.EvacuationActivationResponse;
 import jakarta.validation.Valid;
@@ -88,11 +87,11 @@ public class EvacuationActivationService {
         EvacuationActivation activation = evacuationActivationRepository.findById(activationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Evacuation activation not found: " + activationId));
 
-        if (activation.getIncident() == null || (!(activation.getIncident().getId() == incidentId))) {
+        if (activation.getIncident() == null || !(activation.getIncident().getId() == incidentId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Activation does not belong to incident: " + incidentId);
         }
 
-        activation.setCurrentEvacuees(request.evacueeCount());
+        activation.setCurrentEvacuees(request.currentEvacuees());
         EvacuationActivation saved = evacuationActivationRepository.save(activation);
 
         operationHistoryService.log(
@@ -102,12 +101,13 @@ public class EvacuationActivationService {
                 null,
                 null,
                 "Evacuees updated for center: " + activation.getCenter().getName(),
-                "{\"activationId\":" + activationId + ",\"currentEvacuees\":" + request.evacueeCount() + "}",
+                "{\"activationId\":" + activationId + ",\"currentEvacuees\":" + request.currentEvacuees() + "}",
                 null
         );
 
         return mapToResponse(saved);
     }
+
 
     @Transactional
     public EvacuationActivationResponse closeCenter(Long activationId){
@@ -189,11 +189,11 @@ public class EvacuationActivationService {
     }
 
     @Transactional
-    public EvacuationActivationResponse updateEvacueesForCalamity(Long calamityId, Long activationId, EvacueeUpdateRequest request) {
+    public EvacuationActivationResponse updateEvacueesForCalamity(Long calamityId, Long activationId, UpdateEvacueesRequest request) {
         EvacuationActivation activation = evacuationActivationRepository.findById(activationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Evacuation activation not found: " + activationId));
 
-        if (activation.getCalamity() == null || (!(activation.getCalamity().getId() == calamityId))) {
+        if (activation.getCalamity() == null || !(activation.getCalamity().getId() == calamityId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Activation does not belong to calamity: " + calamityId);
         }
 

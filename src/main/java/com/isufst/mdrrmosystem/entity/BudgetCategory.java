@@ -16,6 +16,9 @@ public class BudgetCategory {
     @Column(nullable = false)
     private String name;
 
+    @Column(nullable = false)
+    private String section; // PREPAREDNESS, PREVENTION_AND_MITIGATION, RESPONSE ETC...
+
     @Column(nullable = false, name = "allocated_amount")
     private double allocatedAmount;
 
@@ -73,5 +76,13 @@ public class BudgetCategory {
 
     public void setExpenses(List<Expense> expenses) {
         this.expenses = expenses;
+    }
+
+    public String getSection() {
+        return section;
+    }
+
+    public void setSection(String section) {
+        this.section = section;
     }
 }

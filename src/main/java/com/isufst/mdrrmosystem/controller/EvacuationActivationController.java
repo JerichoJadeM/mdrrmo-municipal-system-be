@@ -12,7 +12,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/incidents/{incidentId}/evacuations")
 public class EvacuationActivationController {
-
     private final EvacuationActivationService service;
 
     public EvacuationActivationController(EvacuationActivationService service) {
@@ -28,9 +27,7 @@ public class EvacuationActivationController {
     }
 
     @GetMapping
-    public List<EvacuationActivationResponse> getAll(
-            @PathVariable Long incidentId) {
-
+    public List<EvacuationActivationResponse> getAll(@PathVariable Long incidentId) {
         return service.getByIncident(incidentId);
     }
 
@@ -44,9 +41,7 @@ public class EvacuationActivationController {
     }
 
     @PutMapping("/{activationId}/close")
-    public EvacuationActivationResponse close(
-            @PathVariable Long activationId) {
-
+    public EvacuationActivationResponse close(@PathVariable Long activationId) {
         return service.closeCenter(activationId);
     }
 }

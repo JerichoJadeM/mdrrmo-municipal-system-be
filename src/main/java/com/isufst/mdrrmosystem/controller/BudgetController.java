@@ -2,7 +2,7 @@ package com.isufst.mdrrmosystem.controller;
 
 import com.isufst.mdrrmosystem.entity.Budget;
 import com.isufst.mdrrmosystem.request.BudgetRequest;
-import com.isufst.mdrrmosystem.response.BudgetResponse;
+import com.isufst.mdrrmosystem.response.*;
 import com.isufst.mdrrmosystem.service.BudgetService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
@@ -29,13 +29,33 @@ public class BudgetController {
         return budgetService.createBudget(budget);
     }
 
+    @GetMapping("/current-summary")
+    public BudgetCurrentSummaryResponse getCurrentSummary() {
+        return budgetService.getCurrentSummary();
+    }
+
+    @GetMapping("/history")
+    public List<BudgetHistoryResponse> getHistory(@RequestParam(defaultValue = "5") int years) {
+        return budgetService.getBudgetHistory(years);
+    }
+
+    @GetMapping("/forecast/next-year")
+    public BudgetForecastResponse getNextYearForecast() {
+        return budgetService.getNextYearForecast();
+    }
+
+    @GetMapping("/{id}")
+    public BudgetDetailResponse getBudgetDetail(@PathVariable long id) {
+        return budgetService.getBudgetDetail(id);
+    }
+
     @GetMapping("/{id}/spent")
-    public double getTotalSpent(@PathVariable long id){
+    public double getTotalSpent(@PathVariable long id) {
         return budgetService.getTotalSpent(id);
     }
 
     @GetMapping("/{id}/remaining")
-    public double getRemaining(@PathVariable long id){
+    public double getRemaining(@PathVariable long id) {
         return budgetService.getRemainingBudget(id);
     }
 }

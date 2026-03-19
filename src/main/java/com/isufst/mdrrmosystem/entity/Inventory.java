@@ -10,6 +10,8 @@ public class Inventory {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private long id;
     private String name;
+
+    @Column(nullable = false)
     private String category;// VEHICLE, RESCUE EQUIPMENT, MEDICAL, FOOD, TOOL
 
     @Column(name = "total_quantity")
@@ -17,8 +19,18 @@ public class Inventory {
 
     @Column(name = "available_quantity")
     private int availableQuantity;
+
+    @Column(nullable = false)
     private String unit; // pcs, boxes, liters, kits
+
+    @Column(nullable = false)
     private String location; // MDRRMO warehouse, firestation, barangay storage
+
+    @Column(name = "reorder_level")
+    private Integer reorderLevel;
+
+    @Column(name = "is_critical_item")
+    private Boolean criticalItem;
 
     @ManyToOne
     @JoinColumn(name = "procurement_expense_id")
@@ -97,5 +109,21 @@ public class Inventory {
 
     public void setLocation(String location) {
         this.location = location;
+    }
+
+    public Integer getReorderLevel() {
+        return reorderLevel;
+    }
+
+    public void setReorderLevel(Integer reorderLevel) {
+        this.reorderLevel = reorderLevel;
+    }
+
+    public Boolean getCriticalItem() {
+        return criticalItem;
+    }
+
+    public void setCriticalItem(Boolean criticalItem) {
+        this.criticalItem = criticalItem;
     }
 }

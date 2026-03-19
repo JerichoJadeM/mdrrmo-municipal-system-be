@@ -1,7 +1,7 @@
 package com.isufst.mdrrmosystem.controller;
 
 import com.isufst.mdrrmosystem.request.EvacuationActivationRequest;
-import com.isufst.mdrrmosystem.request.EvacueeUpdateRequest;
+import com.isufst.mdrrmosystem.request.UpdateEvacueesRequest;
 import com.isufst.mdrrmosystem.response.EvacuationActivationResponse;
 import com.isufst.mdrrmosystem.service.EvacuationActivationService;
 import jakarta.validation.Valid;
@@ -33,7 +33,7 @@ public class CalamityEvacuationActivationController {
     @PutMapping("/{activationId}/evacuees")
     public EvacuationActivationResponse updateEvacuees(@PathVariable Long calamityId,
                                                        @PathVariable Long activationId,
-                                                       @RequestBody @Valid EvacueeUpdateRequest request) {
+                                                       @RequestBody @Valid UpdateEvacueesRequest request) {
         return evacuationActivationService.updateEvacueesForCalamity(calamityId, activationId, request);
     }
 

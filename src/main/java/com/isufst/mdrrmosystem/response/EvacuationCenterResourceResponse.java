@@ -1,15 +1,17 @@
 package com.isufst.mdrrmosystem.response;
 
-import com.isufst.mdrrmosystem.entity.Barangay;
-
 import java.math.BigDecimal;
 
-public record EvacuationCenterResponse(
+public record EvacuationCenterResourceResponse(
         Long id,
         String name,
         Long barangayId,
         String barangayName,
         int capacity,
+        int currentEvacuees,
+        int availableSlots,
+        int occupancyRate,
+        String capacityStatus,
         String locationDetails,
         BigDecimal latitude,
         BigDecimal longitude,
