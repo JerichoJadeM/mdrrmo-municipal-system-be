@@ -62,7 +62,7 @@ public class ResourcesReadinessService {
         return new ResourcesSummaryResponse(
                 inventory.size(),
                 lowStockInventoryCount,
-                budget.remainingBalance(),
+                budget.totalRemaining(),
                 budget.totalObligations(),
                 reliefReadyCount,
                 reliefLowStockCount,

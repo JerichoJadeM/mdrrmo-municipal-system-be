@@ -6,6 +6,7 @@ public record ExpenseRequest(
         String description,
         double amount,
         LocalDate expenseDate,
-        Long incidentId
+        Long incidentId,
+        Long calamityId
 ) {
 }

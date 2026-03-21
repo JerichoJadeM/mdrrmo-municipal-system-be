@@ -5,8 +5,8 @@ import java.util.List;
 public record BudgetForecastResponse(
         int year,
         double totalForecast,
-        double recommendedAdjustment,
         String assumptions,
+        List<BudgetForecastDriverResponse> drivers,
         List<BudgetForecastCategoryResponse> categories
 ) {
 }

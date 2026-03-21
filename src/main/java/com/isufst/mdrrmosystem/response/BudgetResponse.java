@@ -1,8 +1,5 @@
 package com.isufst.mdrrmosystem.response;
 
-import com.isufst.mdrrmosystem.entity.BudgetCategory;
-import com.isufst.mdrrmosystem.entity.User;
-
 import java.util.List;
 
 public record BudgetResponse(
@@ -12,4 +9,4 @@ public record BudgetResponse(
         String description,
         List<CategoryResponse> categories,
         String createdBy
-) {}
+) { }

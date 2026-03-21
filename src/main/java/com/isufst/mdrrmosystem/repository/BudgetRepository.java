@@ -11,4 +11,5 @@ public interface BudgetRepository extends JpaRepository<Budget, Long> {
 
     Optional<Budget> findFirstByYear(int year);
     boolean existsByYear(int year);
+    List<Budget> findAllByOrderByYearAsc();
 }

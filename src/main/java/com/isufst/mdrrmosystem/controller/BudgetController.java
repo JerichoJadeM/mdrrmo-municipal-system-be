@@ -24,29 +24,29 @@ public class BudgetController {
         return budgetService.getAllBudget();
     }
 
-    @PostMapping
-    public Budget createBudget(@Valid @RequestBody BudgetRequest budget) {
-        return budgetService.createBudget(budget);
-    }
-
     @GetMapping("/current-summary")
     public BudgetCurrentSummaryResponse getCurrentSummary() {
         return budgetService.getCurrentSummary();
     }
 
-    @GetMapping("/history")
-    public List<BudgetHistoryResponse> getHistory(@RequestParam(defaultValue = "5") int years) {
-        return budgetService.getBudgetHistory(years);
-    }
+//    @GetMapping("/history")
+//    public List<BudgetHistoryResponse> getHistory(@RequestParam(defaultValue = "5") int years) {
+//        return budgetService.getBudgetHistory(years);
+//    }
 
-    @GetMapping("/forecast/next-year")
-    public BudgetForecastResponse getNextYearForecast() {
-        return budgetService.getNextYearForecast();
-    }
+//    @GetMapping("/forecast/next-year")
+//    public BudgetForecastResponse getNextYearForecast() {
+//        return budgetService.getNextYearForecast();
+//    }
 
     @GetMapping("/{id}")
     public BudgetDetailResponse getBudgetDetail(@PathVariable long id) {
         return budgetService.getBudgetDetail(id);
+    }
+
+    @PostMapping
+    public Budget createBudget(@Valid @RequestBody BudgetRequest budget) {
+        return budgetService.createBudget(budget);
     }
 
     @GetMapping("/{id}/spent")

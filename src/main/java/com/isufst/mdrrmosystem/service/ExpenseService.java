@@ -1,12 +1,7 @@
 package com.isufst.mdrrmosystem.service;
 
-import com.isufst.mdrrmosystem.entity.BudgetCategory;
-import com.isufst.mdrrmosystem.entity.Expense;
-import com.isufst.mdrrmosystem.entity.Incident;
-import com.isufst.mdrrmosystem.entity.User;
-import com.isufst.mdrrmosystem.repository.BudgetCategoryRepository;
-import com.isufst.mdrrmosystem.repository.ExpenseRepository;
-import com.isufst.mdrrmosystem.repository.IncidentRepository;
+import com.isufst.mdrrmosystem.entity.*;
+import com.isufst.mdrrmosystem.repository.*;
 import com.isufst.mdrrmosystem.request.ExpenseRequest;
 import com.isufst.mdrrmosystem.response.ExpenseResponse;
 import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
@@ -19,13 +14,18 @@ public class ExpenseService {
     private final BudgetCategoryRepository budgetCategoryRepository;
     private final ExpenseRepository expenseRepository;
     private final IncidentRepository incidentRepository;
+    private final CalamityRepository calamityRepository;
     private final FindAuthenticatedUser findAuthenticatedUser;
 
-    public ExpenseService(BudgetCategoryRepository budgetCategoryRepository, ExpenseRepository expenseRepository,
-                          IncidentRepository incidentRepository,  FindAuthenticatedUser findAuthenticatedUser) {
+    public ExpenseService(BudgetCategoryRepository budgetCategoryRepository,
+                          ExpenseRepository expenseRepository,
+                          IncidentRepository incidentRepository,
+                          CalamityRepository calamityRepository,
+                          FindAuthenticatedUser findAuthenticatedUser) {
         this.budgetCategoryRepository = budgetCategoryRepository;
         this.expenseRepository = expenseRepository;
         this.incidentRepository = incidentRepository;
+        this.calamityRepository = calamityRepository;
         this.findAuthenticatedUser = findAuthenticatedUser;
     }
 
@@ -34,19 +34,29 @@ public class ExpenseService {
         BudgetCategory category = budgetCategoryRepository.findById(categoryId)
                 .orElseThrow(() -> new RuntimeException("Budget Category Not Found"));
 
+        if (expenseRequest.incidentId() != null && expenseRequest.calamityId() != null) {
+            throw new RuntimeException("Expense can only be linked to one operation: incident or calamity.");
+        }
+
+        Incident incident = null;
+        if (expenseRequest.incidentId() != null) {
+            incident = incidentRepository.findById(expenseRequest.incidentId())
+                    .orElseThrow(() -> new RuntimeException("Incident Not Found"));
+        }
+
+        Calamity calamity = null;
+        if (expenseRequest.calamityId() != null) {
+            calamity = calamityRepository.findById(expenseRequest.calamityId())
+                    .orElseThrow(() -> new RuntimeException("Calamity Not Found"));
+        }
+
         Expense expense = new Expense();
         expense.setDescription(expenseRequest.description());
         expense.setAmount(expenseRequest.amount());
         expense.setExpenseDate(expenseRequest.expenseDate());
         expense.setCategory(category);
-
-        if(expenseRequest.incidentId() != null){
-            Incident incident = incidentRepository.findById(expenseRequest.incidentId())
-                    .orElseThrow(() -> new RuntimeException("Incident Not Found"));
-
-            expense.setIncident(incident);
-        }
-
+        expense.setIncident(incident);
+        expense.setCalamity(calamity);
         expense.setCreatedBy(findAuthenticatedUser.getAuthenticatedUser());
 
         expenseRepository.save(expense);
@@ -57,6 +67,5 @@ public class ExpenseService {
                 expense.getAmount(),
                 expense.getExpenseDate()
         );
-
     }
 }

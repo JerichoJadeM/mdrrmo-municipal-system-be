@@ -28,44 +28,32 @@ public class CategoryService {
         Budget budget = budgetRepository.findById(budgetId)
                 .orElseThrow(() -> new RuntimeException("Budget not found"));
 
-        double alreadyAllocated = budget.getCategories() == null
+        double currentAllocated = budget.getCategories() == null
                 ? 0
                 : budget.getCategories().stream()
                 .mapToDouble(BudgetCategory::getAllocatedAmount)
                 .sum();
 
-        double remainingUnallocated = budget.getTotalAmount() - alreadyAllocated;
+        double remainingBudget = budget.getTotalAmount() - currentAllocated;
 
-        if (categoryRequest.allocatedAmount() <= 0) {
-            throw new RuntimeException("Allocated amount must be greater than 0");
-        }
-
-        if (categoryRequest.allocatedAmount() > remainingUnallocated) {
-            throw new RuntimeException("Allocated amount exceeds remaining unallocated budget");
+        if (categoryRequest.allocatedAmount() > remainingBudget) {
+            throw new RuntimeException("Allocated amount exceeds remaining budget.");
         }
 
         BudgetCategory category = new BudgetCategory();
+        category.setSection(categoryRequest.section().trim().toUpperCase());
         category.setName(categoryRequest.name());
-        category.setSection(normalizeSection(categoryRequest.section()));
         category.setAllocatedAmount(categoryRequest.allocatedAmount());
         category.setBudget(budget);
 
-        BudgetCategory saved = budgetCategoryRepository.save(category);
+        budgetCategoryRepository.save(category);
 
         return new CategoryResponse(
-                saved.getId(),
-                saved.getName(),
-                saved.getSection(),
-                saved.getAllocatedAmount()
+                category.getId(),
+                category.getSection(),
+                category.getName(),
+                category.getAllocatedAmount()
         );
-    }
-
-    private String normalizeSection(String value) {
-        if (value == null || value.isBlank()) {
-            throw new RuntimeException("Budget section is required");
-        }
-
-        return value.trim().toUpperCase();
     }
 
     @Transactional(readOnly = true)
@@ -80,8 +68,8 @@ public class CategoryService {
         return budget.getCategories().stream()
                 .map(category -> new CategoryResponse(
                         category.getId(),
+                        category.getSection(),
                         category.getName(),
-                        category.getSection() != null ? category.getSection() : "UNASSIGNED",
                         category.getAllocatedAmount()
                 ))
                 .toList();

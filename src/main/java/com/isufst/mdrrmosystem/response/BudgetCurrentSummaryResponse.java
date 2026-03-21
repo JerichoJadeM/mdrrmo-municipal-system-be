@@ -1,12 +1,13 @@
 package com.isufst.mdrrmosystem.response;
 
 public record BudgetCurrentSummaryResponse(
+        Long budgetId,
         int year,
         double totalAllotment,
+        double totalAllocated,
         double totalObligations,
-        double remainingBalance,
+        double totalRemaining,
+        double allocationRate,
         double utilizationRate,
-        double allocatedToCategories,
-        double unallocatedBudget
-) {
-}
+        String description
+) { }
