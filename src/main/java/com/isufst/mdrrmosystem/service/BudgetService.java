@@ -261,12 +261,16 @@ public class BudgetService {
                 .map(budget -> {
                     double obligations = expenseRepository.sumByBudgetId(budget.getId());
                     double remaining = budget.getTotalAmount() - obligations;
+                    double utilization = budget.getTotalAmount() > 0
+                            ? (obligations / budget.getTotalAmount()) * 100
+                            : 0;
 
                     return new BudgetHistoryResponse(
                             budget.getYear(),
                             budget.getTotalAmount(),
                             obligations,
-                            remaining
+                            remaining,
+                            utilization
                     );
                 })
                 .toList();

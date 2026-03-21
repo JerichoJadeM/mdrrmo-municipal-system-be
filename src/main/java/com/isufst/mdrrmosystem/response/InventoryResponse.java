@@ -10,6 +10,7 @@ public record InventoryResponse(
         String location,
         Integer reorderLevel,
         boolean criticalItem,
-        String stockStatus
+        String stockStatus,
+        Double estimatedUnitCost
 ) {
 }

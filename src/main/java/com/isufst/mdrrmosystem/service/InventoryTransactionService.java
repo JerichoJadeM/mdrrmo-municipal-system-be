@@ -90,7 +90,8 @@ public class InventoryTransactionService {
                 inventory.getReorderLevel(),
                 inventory.getCriticalItem(),
                 inventory.getAvailableQuantity() <= 0 ? "OUT"
-                        : inventory.getAvailableQuantity() <= (inventory.getReorderLevel() != null ? inventory.getReorderLevel() : 0) ? "LOW" : "OK"
+                        : inventory.getAvailableQuantity() <= (inventory.getReorderLevel() != null ? inventory.getReorderLevel() : 0) ? "LOW" : "OK",
+                inventory.getEstimatedUnitCost()
         );
     }
 }

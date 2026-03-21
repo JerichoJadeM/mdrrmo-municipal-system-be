@@ -28,8 +28,12 @@ public class ReliefDistribution {
     private LocalDateTime distributedAt;
 
     @ManyToOne
-    @JoinColumn(name = "incident_id", nullable = false)
+    @JoinColumn(name = "incident_id")
     private Incident incident;
+
+    @ManyToOne
+    @JoinColumn(name = "calamity_id")
+    private Calamity calamity;
 
     @ManyToOne
     @JoinColumn(name = "evacuation_activation_id")
@@ -38,6 +42,14 @@ public class ReliefDistribution {
     @ManyToOne
     @JoinColumn(name = "distributed_by")
     private User distributedBy;
+
+    public Calamity getCalamity() {
+        return calamity;
+    }
+
+    public void setCalamity(Calamity calamity) {
+        this.calamity = calamity;
+    }
 
     public Inventory getInventory() {
         return inventory;

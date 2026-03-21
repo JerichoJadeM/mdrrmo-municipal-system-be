@@ -8,7 +8,7 @@ public record ReliefDistributionResponse(
         String inventoryName,
         int quantity,
         LocalDateTime distributedAt,
-        String incidentType,
+        String operationLabel,
         String centerName,
         String distributedBy
 ) {

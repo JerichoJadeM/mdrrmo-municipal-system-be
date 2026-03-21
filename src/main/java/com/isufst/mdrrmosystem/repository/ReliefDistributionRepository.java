@@ -11,6 +11,7 @@ import java.util.List;
 public interface ReliefDistributionRepository extends JpaRepository<ReliefDistribution, Long> {
 
     List<ReliefDistribution> findByIncident_Id(Long incidentId);
+    List<ReliefDistribution> findByCalamity_Id(Long calamityId);
 
     List<ReliefDistribution> findByEvacuationActivation_Id(Long evacuationId);
 
@@ -20,4 +21,5 @@ public interface ReliefDistributionRepository extends JpaRepository<ReliefDistri
         WHERE rd.evacuationActivation.incident.id = :incidentId
     """)
     void deleteByIncidentId(@Param("incidentId") Long incidentId);
+
 }

@@ -4,6 +4,7 @@ public record BudgetHistoryResponse(
         int year,
         double allotment,
         double obligations,
-        double remainingBalance
+        double remainingBalance,
+        double utilizationRate
 ) {
 }

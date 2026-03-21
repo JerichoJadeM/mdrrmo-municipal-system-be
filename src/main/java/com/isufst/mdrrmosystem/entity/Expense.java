@@ -31,8 +31,20 @@ public class Expense {
     private Incident incident;
 
     @ManyToOne
+    @JoinColumn(name = "calamity_id")
+    private Calamity calamity;
+
+    @ManyToOne
     @JoinColumn(name = "created_by")
     private User createdBy;
+
+    public Calamity getCalamity() {
+        return calamity;
+    }
+
+    public void setCalamity(Calamity calamity) {
+        this.calamity = calamity;
+    }
 
     public Incident getIncident() {
         return incident;

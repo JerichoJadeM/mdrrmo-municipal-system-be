@@ -2,6 +2,8 @@ package com.isufst.mdrrmosystem.entity;
 
 import jakarta.persistence.*;
 
+import java.time.LocalDate;
+
 @Entity
 @Table(name = "inventory")
 public class Inventory {
@@ -22,6 +24,12 @@ public class Inventory {
 
     @Column(nullable = false)
     private String unit; // pcs, boxes, liters, kits
+
+    @Column(nullable = false, name = "estimated_unit_cost")
+    private Double estimatedUnitCost;
+
+    @Column(name = "cost_last_updated")
+    private LocalDate costLastUpdated;
 
     @Column(nullable = false)
     private String location; // MDRRMO warehouse, firestation, barangay storage
@@ -125,5 +133,21 @@ public class Inventory {
 
     public void setCriticalItem(Boolean criticalItem) {
         this.criticalItem = criticalItem;
+    }
+
+    public LocalDate getCostLastUpdated() {
+        return costLastUpdated;
+    }
+
+    public void setCostLastUpdated(LocalDate constLastUpdated) {
+        this.costLastUpdated = constLastUpdated;
+    }
+
+    public Double getEstimatedUnitCost() {
+        return estimatedUnitCost;
+    }
+
+    public void setEstimatedUnitCost(Double estimatedUnitCost) {
+        this.estimatedUnitCost = estimatedUnitCost;
     }
 }

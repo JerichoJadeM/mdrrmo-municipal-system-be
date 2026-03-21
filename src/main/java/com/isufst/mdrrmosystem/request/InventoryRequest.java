@@ -7,6 +7,7 @@ public record InventoryRequest(
         String unit,
         String location,
         Integer reorderLevel,
-        Boolean criticalItem
+        Boolean criticalItem,
+        Double estimatedUnitCost
 ) {
 }
