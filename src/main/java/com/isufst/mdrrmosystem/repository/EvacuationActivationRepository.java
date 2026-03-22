@@ -21,4 +21,6 @@ public interface EvacuationActivationRepository extends JpaRepository<Evacuation
     @Modifying
     @Query("DELETE FROM EvacuationActivation ea WHERE ea.calamity.id = :calamityId")
     void deleteByCalamityId(@Param("calamityId") Long calamityId);
+
+    long countByStatus(String status);
 }

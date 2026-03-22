@@ -15,7 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
-
+// Official next-year forecast used by Resources, Reports, and exports.
+// This is the single source of truth for operational financial reporting.
 @Service
 public class BudgetForecastService {
 
@@ -130,7 +131,7 @@ public class BudgetForecastService {
                         "Actual expenses from incidents and calamities are part of the forecast."
                 ),
                 new BudgetForecastDriverResponse(
-                        "Rule-Based Pressure",
+                        "Operations", // ruled based pressure
                         "Included",
                         "Response, relief, evacuation, medical, and preparedness logic adjusts forecast demand."
                 ),

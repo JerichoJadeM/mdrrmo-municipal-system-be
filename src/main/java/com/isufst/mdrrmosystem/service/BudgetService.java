@@ -158,6 +158,7 @@ public class BudgetService {
                 .toList();
     }
 
+    // This one is hybrid and will over forecast when other categories are missing
     @Transactional(readOnly = true)
     public BudgetForecastResponse getNextYearForecast() {
         int currentYear = LocalDate.now().getYear();
@@ -417,6 +418,14 @@ public class BudgetService {
         }
 
         return averageCost * 5;
+    }
+
+    @Transactional(readOnly = true)
+    public BudgetCurrentSummaryResponse getSummaryByYear(int year) {
+        Budget budget = budgetRepository.findFirstByYear(year)
+                .orElseThrow(() -> new RuntimeException("Budget not found for year: " + year));
+
+        return buildCurrentSummary(budget);
     }
 
     private List<ForecastTemplateRow> getWorkbookForecastTemplate() {
