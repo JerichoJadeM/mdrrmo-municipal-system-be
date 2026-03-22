@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Year;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -66,6 +67,9 @@ public class OperationalForecastService {
         double variance = forecastedBudget - actualCostToDate;
 
         List<BudgetWarningResponse> warnings = buildWarnings(
+                incident.getSeverity(),
+                template.isEvacuationRecommended(),
+                template.isReliefRecommended(),
                 forecastedBudget,
                 stockChecks,
                 reliefReadiness,
@@ -109,12 +113,13 @@ public class OperationalForecastService {
 
         List<CostDriverResponse> costDrivers = buildCalamityCostDrivers(template);
         double forecastedBudget = sumCostDrivers(costDrivers);
-
-        // actual cost for calamity is limited for now because current actual transaction model is incident-linked
-        double actualCostToDate = 0;
+        double actualCostToDate = computeCalamityActualCostToDate(calamityId);
         double variance = forecastedBudget - actualCostToDate;
 
         List<BudgetWarningResponse> warnings = buildWarnings(
+                calamity.getSeverity(),
+                template.isEvacuationRecommended(),
+                template.isReliefRecommended(),
                 forecastedBudget,
                 stockChecks,
                 reliefReadiness,
@@ -139,6 +144,22 @@ public class OperationalForecastService {
                 costDrivers,
                 warnings
         );
+    }
+
+    private double computeCalamityActualCostToDate(Long calamityId) {
+        List<ReliefDistribution> distributions = reliefDistributionRepository.findByCalamity_Id(calamityId);
+
+        double reliefActual = distributions.stream()
+                .filter(distribution -> distribution.getInventory() != null)
+                .mapToDouble(distribution -> {
+                    double unitCost = distribution.getInventory().getEstimatedUnitCost() != null
+                            ? distribution.getInventory().getEstimatedUnitCost()
+                            : 0.0;
+                    return unitCost * distribution.getQuantity();
+                })
+                .sum();
+
+        return round2(reliefActual);
     }
 
     private List<ResourceRecommendationResponse> buildIncidentRecommendations(IncidentForecastTemplate template) {
@@ -482,59 +503,208 @@ public class OperationalForecastService {
         };
     }
 
-    private List<BudgetWarningResponse> buildWarnings(double forecastedBudget,
+    private List<BudgetWarningResponse> buildWarnings(String severity,
+                                                      boolean evacuationRecommended,
+                                                      boolean reliefRecommended,
+                                                      double forecastedBudget,
                                                       List<StockCheckResponse> stockChecks,
                                                       ReliefReadinessResponse reliefReadiness,
                                                       List<EvacuationCheckResponse> evacuationChecks) {
         List<BudgetWarningResponse> warnings = new ArrayList<>();
 
-        boolean hasLowStock = stockChecks.stream().anyMatch(s -> "LOW_STOCK".equalsIgnoreCase(s.status()));
-        boolean hasOutOfStock = stockChecks.stream().anyMatch(s ->
-                "OUT_OF_STOCK".equalsIgnoreCase(s.status()) || "NOT_FOUND".equalsIgnoreCase(s.status()));
+        String normalizedSeverity = severity == null ? "LOW" : severity.trim().toUpperCase();
 
-        if (hasOutOfStock) {
-            warnings.add(new BudgetWarningResponse("CRITICAL", "Critical inventory items are unavailable."));
-        } else if (hasLowStock) {
-            warnings.add(new BudgetWarningResponse("WARNING", "Some required inventory items are low in stock."));
+        long lowStockCount = stockChecks == null ? 0 : stockChecks.stream()
+                .filter(check -> "LOW_STOCK".equalsIgnoreCase(check.status()))
+                .count();
+
+        long outOfStockCount = stockChecks == null ? 0 : stockChecks.stream()
+                .filter(check ->
+                        "OUT_OF_STOCK".equalsIgnoreCase(check.status())
+                                || "NOT_FOUND".equalsIgnoreCase(check.status()))
+                .count();
+
+        long reliefLowCount = reliefReadiness != null && reliefReadiness.reliefStockChecks() != null
+                ? reliefReadiness.reliefStockChecks().stream()
+                .filter(check -> !"AVAILABLE".equalsIgnoreCase(check.status()))
+                .count()
+                : 0;
+
+        boolean noEvacuationCapacity = evacuationChecks != null
+                && !evacuationChecks.isEmpty()
+                && evacuationChecks.stream().noneMatch(check -> "AVAILABLE".equalsIgnoreCase(check.status()));
+
+        Budget currentBudget = budgetRepository.findFirstByYear(Year.now().getValue()).orElse(null);
+        boolean noCurrentBudget = currentBudget == null;
+
+        double totalObligations = 0.0;
+        double totalRemaining = 0.0;
+
+        if (currentBudget != null) {
+            totalObligations = expenseRepository.sumByBudgetId(currentBudget.getId());
+            totalRemaining = currentBudget.getTotalAmount() - totalObligations;
         }
 
-        boolean reliefInsufficient = reliefReadiness.reliefStockChecks().stream().anyMatch(s ->
-                !"AVAILABLE".equalsIgnoreCase(s.status()));
-
-        if (reliefReadiness.recommended() && reliefInsufficient) {
-            warnings.add(new BudgetWarningResponse("CRITICAL", "Relief stock may be insufficient for projected demand."));
+        /*
+         * 1. Hard readiness failures
+         */
+        if (outOfStockCount > 0) {
+            warnings.add(new BudgetWarningResponse(
+                    "CRITICAL",
+                    outOfStockCount + " required inventory item(s) are out of stock or not found."
+            ));
         }
 
-        if (!evacuationChecks.isEmpty()) {
-            boolean noAvailableCenter = evacuationChecks.stream().noneMatch(e -> "AVAILABLE".equalsIgnoreCase(e.status()));
-            if (noAvailableCenter) {
-                warnings.add(new BudgetWarningResponse("CRITICAL", "No evacuation center has enough available capacity."));
-            }
+        if (reliefRecommended && reliefLowCount > 0) {
+            warnings.add(new BudgetWarningResponse(
+                    "HIGH",
+                    "Relief-related inventory items need replenishment."
+            ));
         }
 
-        List<Budget> currentYearBudgets = budgetRepository.findByYear(LocalDate.now().getYear());
+        if (evacuationRecommended && noEvacuationCapacity) {
+            warnings.add(new BudgetWarningResponse(
+                    "CRITICAL",
+                    "No evacuation center currently has enough available capacity."
+            ));
+        }
 
-        if (!currentYearBudgets.isEmpty()) {
-            double totalBudgetAmount = currentYearBudgets.stream()
-                    .mapToDouble(Budget::getTotalAmount)
-                    .sum();
-
-            double totalSpent = currentYearBudgets.stream()
-                    .mapToDouble(budget -> Optional.ofNullable(expenseRepository.sumByBudgetId(budget.getId())).orElse(0.0))
-                    .sum();
-
-            double remaining = totalBudgetAmount - totalSpent;
-
-            if (forecastedBudget > remaining) {
-                warnings.add(new BudgetWarningResponse("CRITICAL", "Forecast exceeds remaining annual budget."));
-            } else if (remaining > 0 && forecastedBudget >= remaining * 0.80) {
-                warnings.add(new BudgetWarningResponse("WARNING", "Forecast is close to the remaining annual budget."));
-            }
+        /*
+         * 2. Budget pressure
+         */
+        if (noCurrentBudget) {
+            warnings.add(new BudgetWarningResponse(
+                    "WARNING",
+                    "No current-year budget record found for forecasting."
+            ));
         } else {
-            warnings.add(new BudgetWarningResponse("INFO", "No current-year budget found for budget sufficiency check."));
+            if (forecastedBudget > totalRemaining) {
+                warnings.add(new BudgetWarningResponse(
+                        "CRITICAL",
+                        "Forecasted operational cost exceeds the remaining annual budget."
+                ));
+            } else if (forecastedBudget > totalRemaining * 0.85) {
+                warnings.add(new BudgetWarningResponse(
+                        "HIGH",
+                        "Forecasted operational cost is close to the remaining annual budget."
+                ));
+            } else if (forecastedBudget > totalRemaining * 0.65) {
+                warnings.add(new BudgetWarningResponse(
+                        "WARNING",
+                        "Forecasted operational cost will consume a large part of the remaining budget."
+                ));
+            }
         }
 
-        return warnings;
+        /*
+         * 3. Inventory pressure summary
+         */
+        if (lowStockCount > 0 && outOfStockCount == 0) {
+            warnings.add(new BudgetWarningResponse(
+                    "WARNING",
+                    lowStockCount + " required inventory item(s) are low in stock."
+            ));
+        }
+
+        /*
+         * 4. Severity-aware operational warnings
+         */
+        switch (normalizedSeverity) {
+            case "CRITICAL" -> {
+                warnings.add(new BudgetWarningResponse(
+                        "CRITICAL",
+                        "Critical-severity operation requires immediate resource validation and command-level monitoring."
+                ));
+
+                if (reliefRecommended) {
+                    warnings.add(new BudgetWarningResponse(
+                            "HIGH",
+                            "Critical-severity conditions require aggressive relief readiness even if stock is currently available."
+                    ));
+                }
+
+                if (evacuationRecommended) {
+                    warnings.add(new BudgetWarningResponse(
+                            "HIGH",
+                            "Critical-severity conditions may rapidly increase evacuation demand and center pressure."
+                    ));
+                }
+
+                if (outOfStockCount == 0 && lowStockCount == 0 && reliefLowCount == 0 && !noEvacuationCapacity) {
+                    warnings.add(new BudgetWarningResponse(
+                            "WARNING",
+                            "Resources appear available now, but critical-severity operations should be monitored for rapid escalation."
+                    ));
+                }
+            }
+
+            case "HIGH" -> {
+                warnings.add(new BudgetWarningResponse(
+                        "HIGH",
+                        "High-severity operation requires close monitoring of logistics, responder readiness, and resource sufficiency."
+                ));
+
+                if (reliefRecommended && reliefLowCount == 0) {
+                    warnings.add(new BudgetWarningResponse(
+                            "WARNING",
+                            "Relief is recommended for this high-severity operation. Verify that projected demand is still aligned with field conditions."
+                    ));
+                }
+
+                if (evacuationRecommended && !noEvacuationCapacity) {
+                    warnings.add(new BudgetWarningResponse(
+                            "WARNING",
+                            "Evacuation is recommended. Current capacity appears available, but occupancy may rise quickly."
+                    ));
+                }
+            }
+
+            case "MEDIUM" -> {
+                if (reliefRecommended) {
+                    warnings.add(new BudgetWarningResponse(
+                            "INFO",
+                            "Medium-severity operation may require relief support depending on field updates."
+                    ));
+                }
+
+                if (evacuationRecommended) {
+                    warnings.add(new BudgetWarningResponse(
+                            "INFO",
+                            "Medium-severity operation may require evacuation readiness if conditions worsen."
+                    ));
+                }
+
+                if (lowStockCount > 0 || reliefLowCount > 0) {
+                    warnings.add(new BudgetWarningResponse(
+                            "WARNING",
+                            "Medium-severity operation is affected by current readiness gaps."
+                    ));
+                }
+            }
+
+            default -> {
+                if (lowStockCount == 0 && outOfStockCount == 0 && reliefLowCount == 0 && !noEvacuationCapacity) {
+                    warnings.add(new BudgetWarningResponse(
+                            "INFO",
+                            "Current operational readiness appears sufficient for this low-severity case."
+                    ));
+                }
+            }
+        }
+
+        /*
+         * 5. Deduplicate while preserving order
+         */
+        return warnings.stream()
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toMap(
+                                warning -> warning.level() + "|" + warning.message(),
+                                warning -> warning,
+                                (first, second) -> first,
+                                LinkedHashMap::new
+                        ),
+                        map -> new ArrayList<>(map.values())
+                ));
     }
 
     private double sumCostDrivers(List<CostDriverResponse> costDrivers) {

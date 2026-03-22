@@ -149,7 +149,7 @@ public class BudgetForecastService {
         return new BudgetForecastResponse(
                 nextYear,
                 totalForecast,
-                "Hybrid forecast aligned to 5-year budget history, actual obligations, rule-based response demand, and latest price signals.",
+                "Forecast aligned to budget history, actual obligations, response demand, and latest price signals.",
                 drivers,
                 rows.stream()
                         .sorted(Comparator.comparing(BudgetForecastCategoryResponse::section)
