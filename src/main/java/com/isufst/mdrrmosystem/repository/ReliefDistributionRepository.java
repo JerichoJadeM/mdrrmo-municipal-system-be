@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface ReliefDistributionRepository extends JpaRepository<ReliefDistribution, Long> {
@@ -21,5 +23,15 @@ public interface ReliefDistributionRepository extends JpaRepository<ReliefDistri
         WHERE rd.evacuationActivation.incident.id = :incidentId
     """)
     void deleteByIncidentId(@Param("incidentId") Long incidentId);
+
+    @Query("""
+        SELECT r
+        FROM ReliefDistribution r
+        WHERE (:fromDate IS NULL OR r.distributedAt >= :fromDate)
+          AND (:toDate IS NULL OR r.distributedAt < :toDate)
+        ORDER BY r.distributedAt DESC
+    """)
+    List<ReliefDistribution> findAllWithinRange(@Param("fromDate") LocalDateTime fromDate,
+                                                @Param("toDate") LocalDateTime toDate);
 
 }

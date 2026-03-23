@@ -33,4 +33,14 @@ public interface CalamityRepository extends JpaRepository<Calamity, Long> {
     long countByStatusWithin(@Param("status") String status,
                              @Param("fromDate") LocalDate fromDate,
                              @Param("toDate") LocalDate toDate);
+
+    @Query("""
+        SELECT c
+        FROM Calamity c
+        WHERE (:fromDate IS NULL OR c.date >= :fromDate)
+          AND (:toDate IS NULL OR c.date <= :toDate)
+        ORDER BY c.date DESC
+    """)
+    List<Calamity> findAllWithinRange(@Param("fromDate") LocalDate fromDate,
+                                      @Param("toDate") LocalDate toDate);
 }

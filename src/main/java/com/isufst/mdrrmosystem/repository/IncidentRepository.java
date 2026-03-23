@@ -44,4 +44,14 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
     long countByStatusWithin(@Param("status") String status,
                              @Param("fromDate") LocalDateTime fromDate,
                              @Param("toDate") LocalDateTime toDate);
+
+    @Query("""
+        SELECT i
+        FROM Incident i
+        WHERE (:fromDate IS NULL OR i.reportedAt >= :fromDate)
+          AND (:toDate IS NULL OR i.reportedAt < :toDate)
+        ORDER BY i.reportedAt DESC
+    """)
+    List<Incident> findAllWithin(@Param("fromDate") LocalDateTime fromDate,
+                                 @Param("toDate") LocalDateTime toDate);
 }
