@@ -26,4 +26,6 @@ public class WeatherController {
     public WeatherResponse latest(){
         return weatherService.latestWeather();
     }
+
+
 }
