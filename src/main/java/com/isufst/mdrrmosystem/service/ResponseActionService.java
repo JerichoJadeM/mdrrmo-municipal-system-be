@@ -65,5 +65,4 @@ public class ResponseActionService {
                 action.getResponder().getFirstName() + " " + action.getResponder().getLastName()
         );
     }
-
 }

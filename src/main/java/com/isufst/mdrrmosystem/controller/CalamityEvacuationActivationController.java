@@ -43,8 +43,4 @@ public class CalamityEvacuationActivationController {
         return evacuationActivationService.closeActivationForCalamity(calamityId, activationId);
     }
 
-//    @GetMapping
-//    public List<EvacuationActivationResponse> getAll(@PathVariable Long calamityId) {
-//        return evacuationActivationService.getByCalamity(calamityId);
-//    }
 }

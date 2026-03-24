@@ -29,16 +29,6 @@ public class BudgetController {
         return budgetService.getCurrentSummary();
     }
 
-//    @GetMapping("/history")
-//    public List<BudgetHistoryResponse> getHistory(@RequestParam(defaultValue = "5") int years) {
-//        return budgetService.getBudgetHistory(years);
-//    }
-
-//    @GetMapping("/forecast/next-year")
-//    public BudgetForecastResponse getNextYearForecast() {
-//        return budgetService.getNextYearForecast();
-//    }
-
     @GetMapping("/{id}")
     public BudgetDetailResponse getBudgetDetail(@PathVariable long id) {
         return budgetService.getBudgetDetail(id);

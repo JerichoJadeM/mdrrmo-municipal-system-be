@@ -360,5 +360,4 @@ public class IncidentService {
         incidentRepository.delete(incident);
         incidentRepository.flush();
     }
-
 }

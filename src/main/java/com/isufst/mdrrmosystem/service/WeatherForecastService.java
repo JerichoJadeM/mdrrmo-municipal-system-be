@@ -260,5 +260,4 @@ public class WeatherForecastService {
     }
 
     private record RiskComputation(String level, String reason, String recommendation) {}
-
 }
