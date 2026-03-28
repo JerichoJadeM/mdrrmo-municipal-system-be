@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @ControllerAdvice
@@ -48,5 +49,16 @@ public class ExceptionHandlers {
         error.setTimeStamp(System.currentTimeMillis());
 
         return new ResponseEntity<>(error, status);
+    }
+
+    @ExceptionHandler(ApprovalRequiredException.class)
+    public ResponseEntity<Map<String, Object>> handleApprovalRequired(ApprovalRequiredException ex) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", "APPROVAL_REQUIRED");
+        body.put("message", ex.getMessage());
+        body.put("requestType", ex.getRequestType());
+        body.put("referenceType", ex.getReferenceType());
+        body.put("referenceId", ex.getReferenceId());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
     }
 }

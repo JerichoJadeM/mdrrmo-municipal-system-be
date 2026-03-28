@@ -6,7 +6,7 @@ import com.isufst.mdrrmosystem.response.AuthenticationResponse;
 
 public interface AuthenticationService {
 
-    void register(RegisterRequest registerRequest) throws Exception;
+    AuthenticationResponse register(RegisterRequest registerRequest) throws Exception;
 
     AuthenticationResponse login(AuthenticationRequest request);
 }

@@ -1,7 +1,9 @@
 package com.isufst.mdrrmosystem.controller;
 
 import com.isufst.mdrrmosystem.request.PasswordUpdateRequest;
+import com.isufst.mdrrmosystem.request.UpdateMyProfileRequest;
 import com.isufst.mdrrmosystem.response.AssignableUserResponse;
+import com.isufst.mdrrmosystem.request.UpdateProfilePhotoRequest;
 import com.isufst.mdrrmosystem.response.UserResponse;
 import com.isufst.mdrrmosystem.service.UserService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -44,5 +46,15 @@ public class UserController {
     @GetMapping("/coordinators")
     public List<AssignableUserResponse> getCoordinators() {
         return userService.getAssignableCoordinators();
+    }
+
+    @PutMapping("/me/photo")
+    public UserResponse updateProfilePhoto(@Valid @RequestBody UpdateProfilePhotoRequest request) {
+        return userService.updateProfilePhoto(request);
+    }
+
+    @PutMapping("/me/profile")
+    public UserResponse updateMyProfile(@RequestBody UpdateMyProfileRequest request) {
+        return userService.updateMyProfile(request);
     }
 }

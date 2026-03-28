@@ -15,18 +15,20 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
-public class AuthenticationServiceImpl   implements AuthenticationService {
+public class AuthenticationServiceImpl implements AuthenticationService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
 
-    public AuthenticationServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                                     AuthenticationManager authenticationManager, JwtService jwtService) {
+    public AuthenticationServiceImpl(UserRepository userRepository,
+                                     PasswordEncoder passwordEncoder,
+                                     AuthenticationManager authenticationManager,
+                                     JwtService jwtService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
@@ -35,20 +37,23 @@ public class AuthenticationServiceImpl   implements AuthenticationService {
 
     @Override
     @Transactional
-    public void register(RegisterRequest registerRequest) throws Exception {
-
-        if(isEmailTaken(registerRequest.getEmail())){
-            throw new Exception("Email already exist");
+    public AuthenticationResponse register(RegisterRequest registerRequest) {
+        // Corrected syntax: added missing closing parenthesis
+        if (isEmailTaken(registerRequest.email())) {
+            throw new RuntimeException("Email already exists");
         }
 
         User user = buildNewUser(registerRequest);
-        userRepository.save(user);
+        User savedUser = userRepository.save(user);
+
+        // Return token immediately after registration
+        String jwtToken = jwtService.generateToken(new HashMap<>(), savedUser);
+        return new AuthenticationResponse(jwtToken);
     }
 
     @Override
     @Transactional(readOnly = true)
     public AuthenticationResponse login(AuthenticationRequest request) {
-
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
         );
@@ -61,36 +66,45 @@ public class AuthenticationServiceImpl   implements AuthenticationService {
         return new AuthenticationResponse(jwtToken);
     }
 
-    private boolean isEmailTaken(String email){
-       return userRepository.findByEmail(email).isPresent();
+    private boolean isEmailTaken(String email) {
+        return userRepository.findByEmail(email).isPresent();
     }
 
-    private User buildNewUser(RegisterRequest input) {
+    private User buildNewUser(RegisterRequest request) {
         User user = new User();
+        user.setFirstName(request.firstName());
+        user.setMiddleName(request.middleName());
+        user.setLastName(request.lastName());
+        user.setNumber(request.number());
+        user.setEmail(request.email());
+        user.setPassword(passwordEncoder.encode(request.password()));
+        user.setPosition(request.position());
+        user.setOffice(request.office());
+        user.setAccountStatus(request.accountStatus());
+        user.setResponderEligible(request.responderEligible());
+        user.setCoordinatorEligible(request.coordinatorEligible());
 
-        user.setId(0);
-        user.setFirstName(input.getFirstName());
-        user.setMiddleName(input.getMiddleName());
-        user.setLastName(input.getLastName());
-        user.setNumber(input.getNumber());
-        user.setEmail(input.getEmail());
-        user.setPassword(passwordEncoder.encode(input.getPassword()));
-        user.setAuthorities(initialAuthority());
+        // Logic: Use provided authorities if present, otherwise use initial defaults
+        if (request.authorities() != null && !request.authorities().isEmpty()) {
+            List<Authority> authorities = request.authorities().stream()
+                    .map(Authority::new)
+                    .collect(Collectors.toList());
+            user.setAuthorities(authorities);
+        } else {
+            user.setAuthorities(initialAuthority());
+        }
 
         return user;
     }
 
     private List<Authority> initialAuthority() {
-
         boolean isFirstUser = userRepository.count() == 0;
-
         List<Authority> authorities = new ArrayList<>();
-        authorities.add(new Authority("ROLE_USER"));
 
+        authorities.add(new Authority("ROLE_USER"));
         if (isFirstUser) {
             authorities.add(new Authority("ROLE_ADMIN"));
         }
-
         return authorities;
     }
 }

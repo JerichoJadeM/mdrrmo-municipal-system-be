@@ -1,21 +1,18 @@
 package com.isufst.mdrrmosystem.response;
 
-import com.isufst.mdrrmosystem.entity.Authority;
-
 import java.util.List;
 
-public record UserResponse(
+public record AdminUserResponse(
         Long id,
-        String firstName,
-        String middleName,
-        String lastName,
-        String number,
+        String fullName,
         String email,
-        List<String> authorities,
+        String number,
         String profileImageUrl,
         String position,
         String office,
         String accountStatus,
+        String assignmentStatus,
         Boolean responderEligible,
-        Boolean coordinatorEligible
+        Boolean coordinatorEligible,
+        List<String> authorities
 ) {}

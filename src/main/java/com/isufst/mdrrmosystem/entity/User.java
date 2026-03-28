@@ -7,12 +7,13 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 
 @Entity
-@Table(name = "") // put the table name later after the db setup
+@Table(name = "")
 public class User implements UserDetails {
 
     @Id
@@ -36,7 +37,7 @@ public class User implements UserDetails {
     private String number;
 
     @Column(nullable = false, name = "assignment_status")
-    private String assignmentStatus;
+    private String assignmentStatus; // //AVAILABLE, BUSY, OFF_DUTY
 
     @Column(nullable = false)
     private String password;
@@ -51,9 +52,30 @@ public class User implements UserDetails {
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "user_authorities", joinColumns = @JoinColumn(name = "user_id"))
-    private List<Authority> authorities;
+    private List<Authority> authorities = new ArrayList<>();
 
-    public User() {}
+    @Lob
+    @Column(name = "profile_image_url", columnDefinition = "LONGTEXT")
+    private String profileImageUrl;
+
+    @Column(name = "position")
+    private String position;
+
+    @Column(name = "office")
+    private String office;
+
+    @Column(name = "account_status", nullable = false)
+    private String accountStatus = "ACTIVE"; // ACTIVE, INACTIVE, SUSPENDED
+
+    @Column(name = "responder_eligible", nullable = false)
+    private Boolean responderEligible = false;
+
+    @Column(name = "coordinator_eligible", nullable = false)
+    private Boolean coordinatorEligible = false;
+
+    public User(){}
+
+    public User(String s, String string, String lastName, String email, String password, String position, String office, String accountStatus, Boolean aBoolean, Boolean coordinatorEligible, List<String> authorities) {}
 
     public User(String firstName, String middleName, String lastName, String email, String number, String password) {
         this.firstName = firstName;
@@ -63,6 +85,25 @@ public class User implements UserDetails {
         this.number = number;
         this.password = password;
 
+    }
+
+    public User(String firstName, String middleName, String lastName, String email, String number, String assignmentStatus, String password, Date createAt, Date updateAt, List<Authority> authorities, String profileImageUrl, String position, String office, String accountStatus, Boolean responderEligible, Boolean coordinatorEligible) {
+        this.firstName = firstName;
+        this.middleName = middleName;
+        this.lastName = lastName;
+        this.email = email;
+        this.number = number;
+        this.assignmentStatus = assignmentStatus;
+        this.password = password;
+        this.createAt = createAt;
+        this.updateAt = updateAt;
+        this.authorities = authorities;
+        this.profileImageUrl = profileImageUrl;
+        this.position = position;
+        this.office = office;
+        this.accountStatus = accountStatus;
+        this.responderEligible = responderEligible;
+        this.coordinatorEligible = coordinatorEligible;
     }
 
     public long getId() {
@@ -146,8 +187,16 @@ public class User implements UserDetails {
         return authorities;
     }
 
-    public  void setAuthorities(List<Authority> authorities) {
-        this.authorities = authorities;
+    public void setAuthorities(List<Authority> authorities) {
+        this.authorities = new ArrayList<>(authorities);
+    }
+
+    public void updateAuthorities(List<Authority> newAuthorities) {
+        if (this.authorities == null) {
+            this.authorities = new ArrayList<>();
+        }
+        this.authorities.clear();
+        this.authorities.addAll(newAuthorities);
     }
 
     // convenience method for full name
@@ -188,5 +237,53 @@ public class User implements UserDetails {
     @Override
     public boolean isEnabled() {
         return UserDetails.super.isEnabled();
+    }
+
+    public String getProfileImageUrl() {
+        return profileImageUrl;
+    }
+
+    public void setProfileImageUrl(String profileImageUrl) {
+        this.profileImageUrl = profileImageUrl;
+    }
+
+    public String getPosition() {
+        return position;
+    }
+
+    public void setPosition(String position) {
+        this.position = position;
+    }
+
+    public String getOffice() {
+        return office;
+    }
+
+    public void setOffice(String office) {
+        this.office = office;
+    }
+
+    public String getAccountStatus() {
+        return accountStatus;
+    }
+
+    public void setAccountStatus(String accountStatus) {
+        this.accountStatus = accountStatus;
+    }
+
+    public Boolean getResponderEligible() {
+        return responderEligible;
+    }
+
+    public void setResponderEligible(Boolean responderEligible) {
+        this.responderEligible = responderEligible;
+    }
+
+    public Boolean getCoordinatorEligible() {
+        return coordinatorEligible;
+    }
+
+    public void setCoordinatorEligible(Boolean coordinatorEligible) {
+        this.coordinatorEligible = coordinatorEligible;
     }
 }

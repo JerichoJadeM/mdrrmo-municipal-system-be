@@ -64,4 +64,27 @@ public interface UserRepository extends JpaRepository<User, Long> {
         ORDER BY u.firstName ASC, u.lastName ASC
     """)
     List<User> findAvailableResponders();
+
+    @Query("""
+        SELECT DISTINCT u
+        FROM User u
+        JOIN u.authorities a
+        WHERE a.authority IN ('ROLE_ADMIN', 'ROLE_MANAGER')
+    """)
+    List<User> findAdminsAndManagers();
+
+    @Query("""
+        SELECT DISTINCT u
+        FROM User u
+        LEFT JOIN FETCH u.authorities
+    """)
+    List<User> findAllWithAuthorities();
+
+    @Query("""
+        SELECT COUNT(DISTINCT u)
+        FROM User u
+        JOIN u.authorities a
+        WHERE a.authority = :authority
+    """)
+    long countUsersByAuthority(@Param("authority") String authority);
 }

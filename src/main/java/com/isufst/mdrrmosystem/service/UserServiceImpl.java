@@ -4,8 +4,10 @@ import com.isufst.mdrrmosystem.entity.Authority;
 import com.isufst.mdrrmosystem.entity.User;
 import com.isufst.mdrrmosystem.repository.UserRepository;
 import com.isufst.mdrrmosystem.request.PasswordUpdateRequest;
+import com.isufst.mdrrmosystem.request.UpdateMyProfileRequest;
 import com.isufst.mdrrmosystem.response.AssignableUserResponse;
 import com.isufst.mdrrmosystem.response.ResponderResponse;
+import com.isufst.mdrrmosystem.request.UpdateProfilePhotoRequest;
 import com.isufst.mdrrmosystem.response.UserResponse;
 import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
 import org.springframework.http.HttpStatus;
@@ -43,10 +45,56 @@ public class UserServiceImpl implements UserService{
 
         return new UserResponse(
                 user.getId(),
-                user.getFullName(),
+                user.getFirstName(),
+                user.getMiddleName(),
+                user.getLastName(),
                 user.getNumber(),
                 user.getEmail(),
-                authorities
+                authorities,
+                user.getProfileImageUrl(),
+                user.getPosition(),
+                user.getOffice(),
+                user.getAccountStatus(),
+                user.getResponderEligible(),
+                user.getCoordinatorEligible()
+        );
+    }
+
+    @Override
+    @Transactional
+    public UserResponse updateProfilePhoto(UpdateProfilePhotoRequest request) {
+        User user = findAuthenticatedUser.getAuthenticatedUser();
+
+        String profileImageUrl = request.profileImageUrl() != null
+                ? request.profileImageUrl().trim()
+                : "";
+
+        if (profileImageUrl.length() > 2_000_000) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Profile photo is too large.");
+        }
+
+        user.setProfileImageUrl(profileImageUrl);
+        User savedUser = userRepository.save(user);
+
+        List<String> authorities = savedUser.getAuthorities()
+                .stream()
+                .map(GrantedAuthority::getAuthority)
+                .toList();
+
+        return new UserResponse(
+                savedUser.getId(),
+                savedUser.getFirstName(),
+                savedUser.getMiddleName(),
+                savedUser.getLastName(),
+                savedUser.getNumber(),
+                savedUser.getEmail(),
+                authorities,
+                savedUser.getProfileImageUrl(),
+                savedUser.getPosition(),
+                savedUser.getOffice(),
+                savedUser.getAccountStatus(),
+                savedUser.getResponderEligible(),
+                savedUser.getCoordinatorEligible()
         );
     }
 
@@ -101,6 +149,57 @@ public class UserServiceImpl implements UserService{
                 .stream()
                 .map(this::mapAssignableUser)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public UserResponse updateMyProfile(UpdateMyProfileRequest request) {
+        User user = findAuthenticatedUser.getAuthenticatedUser();
+
+        String firstName = request.firstName() != null ? request.firstName().trim() : "";
+        String middleName = request.middleName() != null ? request.middleName().trim() : "";
+        String lastName = request.lastName() != null ? request.lastName().trim() : "";
+        String number = request.number() != null ? request.number().trim() : "";
+        String position = request.position() != null ? request.position().trim() : "";
+        String office = request.office() != null ? request.office().trim() : "";
+
+        if (firstName.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "First name is required.");
+        }
+
+        if (lastName.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Last name is required.");
+        }
+
+        user.setFirstName(firstName);
+        user.setMiddleName(middleName);
+        user.setLastName(lastName);
+        user.setNumber(number);
+        user.setPosition(position);
+        user.setOffice(office);
+
+        User savedUser = userRepository.save(user);
+
+        List<String> authorities = savedUser.getAuthorities()
+                .stream()
+                .map(GrantedAuthority::getAuthority)
+                .toList();
+
+        return new UserResponse(
+                savedUser.getId(),
+                savedUser.getFirstName(),
+                savedUser.getMiddleName(),
+                savedUser.getLastName(),
+                savedUser.getNumber(),
+                savedUser.getEmail(),
+                authorities,
+                savedUser.getProfileImageUrl(),
+                savedUser.getPosition(),
+                savedUser.getOffice(),
+                savedUser.getAccountStatus(),
+                savedUser.getResponderEligible(),
+                savedUser.getCoordinatorEligible()
+        );
     }
 
     @Override

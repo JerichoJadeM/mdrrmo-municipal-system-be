@@ -9,6 +9,8 @@ import com.isufst.mdrrmosystem.repository.UserRepository;
 import com.isufst.mdrrmosystem.request.CalamityRequest;
 import com.isufst.mdrrmosystem.request.CalamityTransitionRequest;
 import com.isufst.mdrrmosystem.response.CalamityResponse;
+import com.isufst.mdrrmosystem.response.WarningItem;
+import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,46 +29,69 @@ public class CalamityService {
     private final BarangayRepository barangayRepository;
     private final UserRepository userRepository;
     private final OperationHistoryService operationHistoryService;
+    private final NotificationService notificationService;
+    private final FindAuthenticatedUser findAuthenticatedUser;
+    private final OperationApprovalGuard operationApprovalGuard;
 
     public CalamityService(CalamityRepository calamityRepository,
                            BarangayRepository barangayRepository,
                            UserRepository userRepository,
-                           OperationHistoryService operationHistoryService) {
+                           OperationHistoryService operationHistoryService,
+                           NotificationService notificationService,
+                           FindAuthenticatedUser findAuthenticatedUser,
+                           OperationApprovalGuard operationApprovalGuard) {
         this.calamityRepository = calamityRepository;
         this.barangayRepository = barangayRepository;
         this.userRepository = userRepository;
         this.operationHistoryService = operationHistoryService;
+        this.notificationService = notificationService;
+        this.findAuthenticatedUser = findAuthenticatedUser;
+        this.operationApprovalGuard = operationApprovalGuard;
     }
 
     @Transactional
     public CalamityResponse addCalamityRecord(CalamityRequest calamityRequest) {
         Calamity calamity = new Calamity();
-        calamity.setStatus("ACTIVE"); // Default status for new records
+        calamity.setStatus("ACTIVE");
 
-        // Pass the new object to the shared logic
         mapRequestToEntity(calamity, calamityRequest);
 
         Calamity savedCalamity = calamityRepository.save(calamity);
+
+        notifyCoordinatorIfAssigned(savedCalamity, "assigned as coordinator for calamity " + savedCalamity.getType());
+        notifyAllUsersIfHighOrCritical(savedCalamity, "Calamity marked HIGH/CRITICAL: " + savedCalamity.getType());
+
         return mapToResponse(savedCalamity);
     }
 
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     @Transactional
     public CalamityResponse updateCalamityRecord(long calamityId, CalamityRequest calamityRequest) {
-        // 1. Find existing record
         Calamity existingCalamity = calamityRepository.findById(calamityId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Calamity Id not found: " + calamityId));
 
-        // 2. Use the shared logic to update fields (avoids code duplication)
+        Long oldCoordinatorId = existingCalamity.getCoordinator() != null ? existingCalamity.getCoordinator().getId() : null;
+        String oldSeverity = existingCalamity.getSeverity();
+
         mapRequestToEntity(existingCalamity, calamityRequest);
 
-        // 3. Save and return
         Calamity updatedCalamity = calamityRepository.save(existingCalamity);
+
+        Long newCoordinatorId = updatedCalamity.getCoordinator() != null ? updatedCalamity.getCoordinator().getId() : null;
+        if (newCoordinatorId != null && !newCoordinatorId.equals(oldCoordinatorId)) {
+            notifyCoordinatorIfAssigned(updatedCalamity, "assigned as coordinator for calamity " + updatedCalamity.getType());
+        }
+
+        if (isSeverityEscalatedToHighOrCritical(oldSeverity, updatedCalamity.getSeverity())) {
+            notifyAllUsersIfHighOrCritical(updatedCalamity, "Calamity escalated to HIGH/CRITICAL: " + updatedCalamity.getType());
+        }
+
         return mapToResponse(updatedCalamity);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','USER')")
     @Transactional
     public CalamityResponse markCalamityMonitoring(long calamityId, CalamityTransitionRequest request) {
         Calamity calamity = calamityRepository.findById(calamityId)
@@ -77,6 +102,14 @@ public class CalamityService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Only ACTIVE calamities can be moved to MONITORING");
         }
+
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
+        operationApprovalGuard.validateOrThrowForCalamityTransition(
+                actor,
+                calamity,
+                "MONITORING",
+                buildCalamityWarnings(calamity)
+        );
 
         applyTransitionUpdates(calamity, request);
         String oldStatus = calamity.getStatus();
@@ -97,7 +130,8 @@ public class CalamityService {
         return mapToResponse(saved);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','USER')")
     @Transactional
     public CalamityResponse markCalamityResolved(long calamityId, CalamityTransitionRequest request) {
         Calamity calamity = calamityRepository.findById(calamityId)
@@ -109,6 +143,14 @@ public class CalamityService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Only ACTIVE or MONITORING calamities can be moved to RESOLVED");
         }
+
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
+        operationApprovalGuard.validateOrThrowForCalamityTransition(
+                actor,
+                calamity,
+                "RESOLVED",
+                buildCalamityWarnings(calamity)
+        );
 
         applyTransitionUpdates(calamity, request);
 
@@ -130,7 +172,7 @@ public class CalamityService {
         return mapToResponse(saved);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','USER')")
     @Transactional
     public CalamityResponse markCalamityEnded(long calamityId, CalamityTransitionRequest request) {
         Calamity calamity = calamityRepository.findById(calamityId)
@@ -141,6 +183,14 @@ public class CalamityService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Only RESOLVED calamities can be moved to ENDED");
         }
+
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
+        operationApprovalGuard.validateOrThrowForCalamityTransition(
+                actor,
+                calamity,
+                "ENDED",
+                buildCalamityWarnings(calamity)
+        );
 
         applyTransitionUpdates(calamity, request);
 
@@ -161,6 +211,63 @@ public class CalamityService {
 
         return mapToResponse(saved);
     }
+
+    private void notifyCoordinatorIfAssigned(Calamity calamity, String message) {
+        if (calamity.getCoordinator() == null) {
+            return;
+        }
+
+        notificationService.notifyUser(
+                calamity.getCoordinator(),
+                "ASSIGNMENT",
+                "Calamity Coordinator Assignment",
+                message,
+                "CALAMITY",
+                calamity.getId()
+        );
+    }
+
+    private void notifyAllUsersIfHighOrCritical(Calamity calamity, String message) {
+        if (!isHighOrCritical(calamity.getSeverity())) {
+            return;
+        }
+
+        notificationService.notifyAllUsers(
+                "WARNING",
+                "High/Critical Calamity Alert",
+                message,
+                "CALAMITY",
+                calamity.getId()
+        );
+    }
+
+    private boolean isHighOrCritical(String severity) {
+        if (severity == null) return false;
+        String value = severity.trim().toUpperCase();
+        return "HIGH".equals(value) || "CRITICAL".equals(value);
+    }
+
+    private boolean isSeverityEscalatedToHighOrCritical(String oldSeverity, String newSeverity) {
+        return !isHighOrCritical(oldSeverity) && isHighOrCritical(newSeverity);
+    }
+
+    private List<WarningItem> buildCalamityWarnings(Calamity calamity) {
+        if (isHighOrCritical(calamity.getSeverity())) {
+            return List.of(
+                    new WarningItem(
+                            "WARNING",
+                            "CALAMITY_HIGH_SEVERITY",
+                            "High-severity calamity transition requires acknowledgement.",
+                            "Submit acknowledgement request or approve as manager/admin.",
+                            true,
+                            true
+                    )
+            );
+        }
+        return List.of();
+    }
+
+
 
     private void applyTransitionUpdates(Calamity calamity, CalamityTransitionRequest request) {
         if (request != null && request.description() != null && !request.description().isBlank()) {
