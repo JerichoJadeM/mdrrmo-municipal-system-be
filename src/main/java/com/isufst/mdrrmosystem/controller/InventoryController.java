@@ -3,6 +3,7 @@ package com.isufst.mdrrmosystem.controller;
 import com.isufst.mdrrmosystem.request.InventoryAdjustmentRequest;
 import com.isufst.mdrrmosystem.request.InventoryProcurementRequest;
 import com.isufst.mdrrmosystem.request.InventoryRequest;
+import com.isufst.mdrrmosystem.response.ActionSubmissionResponse;
 import com.isufst.mdrrmosystem.response.InventoryResponse;
 import com.isufst.mdrrmosystem.service.InventoryService;
 import com.isufst.mdrrmosystem.service.InventoryTransactionService;
@@ -52,8 +53,8 @@ public class InventoryController {
     }
 
     @PatchMapping("/{inventoryId}/procure")
-    public InventoryResponse procureStock(@PathVariable long inventoryId,
-                                          @RequestBody InventoryProcurementRequest request) {
+    public ActionSubmissionResponse procureStock(@PathVariable long inventoryId,
+                                                 @RequestBody InventoryProcurementRequest request) {
         return inventoryService.procureStock(inventoryId, request);
     }
 }

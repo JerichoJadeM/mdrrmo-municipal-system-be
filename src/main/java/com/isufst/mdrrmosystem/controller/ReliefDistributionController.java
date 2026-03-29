@@ -1,6 +1,7 @@
 package com.isufst.mdrrmosystem.controller;
 
 import com.isufst.mdrrmosystem.request.ReliefDistributionRequest;
+import com.isufst.mdrrmosystem.response.ActionSubmissionResponse;
 import com.isufst.mdrrmosystem.response.ReliefDistributionResponse;
 import com.isufst.mdrrmosystem.service.ReliefDistributionService;
 import org.springframework.web.bind.annotation.*;
@@ -18,7 +19,7 @@ public class ReliefDistributionController {
     }
 
     @PostMapping("/incidents/{incidentId}/relief")
-    public ReliefDistributionResponse distribute(
+    public ActionSubmissionResponse distribute(
             @PathVariable Long incidentId,
             @RequestBody ReliefDistributionRequest request) {
 
@@ -33,7 +34,7 @@ public class ReliefDistributionController {
     }
 
     @PostMapping("/calamity/{calamityId}/relief")
-    public ReliefDistributionResponse distributeCalamity(
+    public ActionSubmissionResponse distributeCalamity(
             @PathVariable Long calamityId,
             @RequestBody ReliefDistributionRequest request) {
         return service.distributeForCalamity(calamityId, request);

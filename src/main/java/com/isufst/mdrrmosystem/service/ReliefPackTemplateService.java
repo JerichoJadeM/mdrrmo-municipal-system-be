@@ -2,15 +2,15 @@ package com.isufst.mdrrmosystem.service;
 
 import com.isufst.mdrrmosystem.entity.*;
 import com.isufst.mdrrmosystem.repository.*;
+import com.isufst.mdrrmosystem.request.ApprovalRequestCreateRequest;
 import com.isufst.mdrrmosystem.request.ReliefPackTemplateItemRequest;
 import com.isufst.mdrrmosystem.request.ReliefPackTemplateRequest;
-import com.isufst.mdrrmosystem.response.ReliefPackReadinessItemResponse;
-import com.isufst.mdrrmosystem.response.ReliefPackReadinessResponse;
-import com.isufst.mdrrmosystem.response.ReliefPackTemplateItemResponse;
-import com.isufst.mdrrmosystem.response.ReliefPackTemplateResponse;
+import com.isufst.mdrrmosystem.response.*;
 import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -28,6 +28,9 @@ public class ReliefPackTemplateService {
     private final CalamityRepository calamityRepository;
     private final EvacuationActivationRepository evacuationActivationRepository;
     private final FindAuthenticatedUser findAuthenticatedUser;
+    private final ApprovalRequestService approvalRequestService;
+    private final NotificationService notificationService;
+    private final ReliefPackDistributionExecutorService reliefPackDistributionExecutorService;
 
     public ReliefPackTemplateService(ReliefPackTemplateRepository templateRepository,
                                      ReliefDistributionRepository reliefDistributionRepository,
@@ -36,7 +39,10 @@ public class ReliefPackTemplateService {
                                      IncidentRepository incidentRepository,
                                      CalamityRepository calamityRepository,
                                      EvacuationActivationRepository evacuationActivationRepository,
-                                     FindAuthenticatedUser findAuthenticatedUser) {
+                                     FindAuthenticatedUser findAuthenticatedUser,
+                                     ApprovalRequestService approvalRequestService,
+                                     NotificationService notificationService,
+                                     ReliefPackDistributionExecutorService reliefPackDistributionExecutorService) {
         this.templateRepository = templateRepository;
         this.reliefDistributionRepository = reliefDistributionRepository;
         this.inventoryTransactionRepository = inventoryTransactionRepository;
@@ -45,6 +51,9 @@ public class ReliefPackTemplateService {
         this.calamityRepository = calamityRepository;
         this.evacuationActivationRepository = evacuationActivationRepository;
         this.findAuthenticatedUser = findAuthenticatedUser;
+        this.approvalRequestService = approvalRequestService;
+        this.notificationService = notificationService;
+        this.reliefPackDistributionExecutorService = reliefPackDistributionExecutorService;
     }
 
     @Transactional
@@ -195,105 +204,127 @@ public class ReliefPackTemplateService {
     }
 
     @Transactional
-    public void distributeTemplateForIncident(Long templateId, Long incidentId, Integer packCount, Long evacuationActivationId) {
-        if (packCount == null || packCount <= 0) {
-            throw new RuntimeException("Pack count must be greater than 0");
-        }
-
+    public ActionSubmissionResponse distributeTemplateForIncident(Long templateId, Long incidentId, Integer packCount, Long evacuationActivationId) {
         ReliefPackTemplate template = templateRepository.findById(templateId)
                 .orElseThrow(() -> new RuntimeException("Relief pack template not found: " + templateId));
 
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new RuntimeException("Incident not found: " + incidentId));
 
-        EvacuationActivation activation = null;
-        if (evacuationActivationId != null) {
-            activation = evacuationActivationRepository.findById(evacuationActivationId)
-                    .orElseThrow(() -> new RuntimeException("Evacuation activation not found: " + evacuationActivationId));
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
+        boolean isElevated = actor.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_MANAGER".equals(a.getAuthority()));
+
+        if (!isElevated) {
+            ApprovalRequestResponse created = approvalRequestService.createRequest(
+                    new ApprovalRequestCreateRequest(
+                            "RELIEF_PACK_DISTRIBUTION_REQUEST",
+                            "Relief pack distribution request for " + template.getName(),
+                            "Request to distribute " + packCount + " pack(s) for incident " + incident.getType(),
+                            "INCIDENT",
+                            incident.getId(),
+                            """
+                            {
+                              "templateId": %d,
+                              "incidentId": %d,
+                              "packCount": %d,
+                              "evacuationActivationId": %s
+                            }
+                            """.formatted(
+                                    templateId,
+                                    incidentId,
+                                    packCount,
+                                    evacuationActivationId != null ? evacuationActivationId.toString() : "null"
+                            )
+                    )
+            );
+
+            notificationService.notifyAdminsAndManagers(
+                    "REQUEST",
+                    "Relief Pack Approval Required",
+                    actor.getFullName() + " requested distribution of relief pack " + template.getName() + ".",
+                    "APPROVAL_REQUEST",
+                    created.id()
+            );
+
+            return new ActionSubmissionResponse(false, true, "Relief pack distribution request submitted for approval.", created.id());
         }
 
-        validatePackStock(template, packCount);
+        reliefPackDistributionExecutorService.executeIncidentPackDistribution(templateId, incidentId, packCount, evacuationActivationId, actor);
 
-        User user = findAuthenticatedUser.getAuthenticatedUser();
+        notificationService.notifyAllUsers(
+                "INVENTORY",
+                "Relief Pack Distribution Completed",
+                "Relief pack distribution completed for template " + template.getName(),
+                "INCIDENT",
+                incidentId
+        );
 
-        for (ReliefPackTemplateItem item : template.getItems()) {
-            Inventory inventory = item.getInventory();
-            int totalRequired = item.getQuantityRequired() * packCount;
-
-            inventory.setAvailableQuantity(inventory.getAvailableQuantity() - totalRequired);
-            inventoryRepository.save(inventory);
-
-            ReliefDistribution relief = new ReliefDistribution();
-            relief.setInventory(inventory);
-            relief.setQuantity(totalRequired);
-            relief.setDistributedAt(LocalDateTime.now());
-            relief.setIncident(incident);
-            relief.setCalamity(null);
-            relief.setEvacuationActivation(activation);
-            relief.setDistributedBy(user);
-            reliefDistributionRepository.save(relief);
-
-            InventoryTransaction transaction = new InventoryTransaction();
-            transaction.setActionType("CONSUMED");
-            transaction.setQuantity(totalRequired);
-            transaction.setTimeStamp(LocalDateTime.now());
-            transaction.setInventory(inventory);
-            transaction.setIncident(incident);
-            transaction.setPerformedBy(user);
-            transaction.setDistribution(relief);
-            inventoryTransactionRepository.save(transaction);
-        }
+        return new ActionSubmissionResponse(true, false, "Relief pack distributed successfully.", null);
     }
 
     @Transactional
-    public void distributeTemplateForCalamity(Long templateId, Long calamityId, Integer packCount, Long evacuationActivationId) {
-        if (packCount == null || packCount <= 0) {
-            throw new RuntimeException("Pack count must be greater than 0");
-        }
-
+    public ActionSubmissionResponse distributeTemplateForCalamity(Long templateId, Long calamityId, Integer packCount, Long evacuationActivationId) {
         ReliefPackTemplate template = templateRepository.findById(templateId)
                 .orElseThrow(() -> new RuntimeException("Relief pack template not found: " + templateId));
 
         Calamity calamity = calamityRepository.findById(calamityId)
                 .orElseThrow(() -> new RuntimeException("Calamity not found: " + calamityId));
 
-        EvacuationActivation activation = null;
-        if (evacuationActivationId != null) {
-            activation = evacuationActivationRepository.findById(evacuationActivationId)
-                    .orElseThrow(() -> new RuntimeException("Evacuation activation not found: " + evacuationActivationId));
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
+        boolean isElevated = actor.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_MANAGER".equals(a.getAuthority()));
+
+        if (!isElevated) {
+            ApprovalRequestResponse created = approvalRequestService.createRequest(
+                    new ApprovalRequestCreateRequest(
+                            "RELIEF_PACK_DISTRIBUTION_REQUEST",
+                            "Relief pack distribution request for " + template.getName(),
+                            "Request to distribute " + packCount + " pack(s) for calamity " + calamity.getType(),
+                            "CALAMITY",
+                            calamity.getId(),
+                            """
+                            {
+                              "templateId": %d,
+                              "calamityId": %d,
+                              "packCount": %d,
+                              "evacuationActivationId": %s
+                            }
+                            """.formatted(
+                                    templateId,
+                                    calamityId,
+                                    packCount,
+                                    evacuationActivationId != null ? evacuationActivationId.toString() : "null"
+                            )
+                    )
+            );
+
+            notificationService.notifyAdminsAndManagers(
+                    "REQUEST",
+                    "Relief Pack Approval Required",
+                    actor.getFullName() + " requested distribution of relief pack " + template.getName() + ".",
+                    "APPROVAL_REQUEST",
+                    created.id()
+            );
+
+            return new ActionSubmissionResponse(false, true, "Relief pack distribution request submitted for approval.", created.id());
         }
 
-        validatePackStock(template, packCount);
+        reliefPackDistributionExecutorService.executeCalamityPackDistribution(templateId, calamityId, packCount, evacuationActivationId, actor);
 
-        User user = findAuthenticatedUser.getAuthenticatedUser();
+        notificationService.notifyAllUsers(
+                "INVENTORY",
+                "Relief Pack Distribution Completed",
+                "Relief pack distribution completed for template " + template.getName(),
+                "CALAMITY",
+                calamityId
+        );
 
-        for (ReliefPackTemplateItem item : template.getItems()) {
-            Inventory inventory = item.getInventory();
-            int totalRequired = item.getQuantityRequired() * packCount;
+        return new ActionSubmissionResponse(true, false, "Relief pack distributed successfully.", null);
+    }
 
-            inventory.setAvailableQuantity(inventory.getAvailableQuantity() - totalRequired);
-            inventoryRepository.save(inventory);
-
-            ReliefDistribution relief = new ReliefDistribution();
-            relief.setInventory(inventory);
-            relief.setQuantity(totalRequired);
-            relief.setDistributedAt(LocalDateTime.now());
-            relief.setIncident(null);
-            relief.setCalamity(calamity);
-            relief.setEvacuationActivation(activation);
-            relief.setDistributedBy(user);
-            reliefDistributionRepository.save(relief);
-
-            InventoryTransaction transaction = new InventoryTransaction();
-            transaction.setActionType("CONSUMED");
-            transaction.setQuantity(totalRequired);
-            transaction.setTimeStamp(LocalDateTime.now());
-            transaction.setInventory(inventory);
-            transaction.setIncident(null);
-            transaction.setPerformedBy(user);
-            transaction.setDistribution(relief);
-            inventoryTransactionRepository.save(transaction);
-        }
+    private String escapeJson(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private void validatePackStock(ReliefPackTemplate template, int packCount) {

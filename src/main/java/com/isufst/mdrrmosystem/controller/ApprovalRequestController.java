@@ -3,6 +3,7 @@ package com.isufst.mdrrmosystem.controller;
 import com.isufst.mdrrmosystem.request.ApprovalDecisionRequest;
 import com.isufst.mdrrmosystem.request.ApprovalRequestCreateRequest;
 import com.isufst.mdrrmosystem.response.ApprovalRequestResponse;
+import com.isufst.mdrrmosystem.response.ApprovalRequestStatusResponse;
 import com.isufst.mdrrmosystem.service.ApprovalRequestService;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -48,5 +49,20 @@ public class ApprovalRequestController {
     public ApprovalRequestResponse reject(@PathVariable Long id,
                                           @RequestBody ApprovalDecisionRequest request) {
         return approvalRequestService.reject(id, request);
+    }
+
+//    @GetMapping("/status")
+//    public ApprovalRequestStatusResponse getLatestStatus(@RequestParam String requestType,
+//                                                         @RequestParam String referenceType,
+//                                                         @RequestParam Long referenceId) {
+//        return approvalRequestService.getLatestStatus(requestType, referenceType, referenceId);
+//    }
+
+    @GetMapping("/status")
+    public ApprovalRequestStatusResponse getLatestStatus(@RequestParam String requestType,
+                                                         @RequestParam String referenceType,
+                                                         @RequestParam Long referenceId,
+                                                         @RequestParam(required = false) String mode) {
+        return approvalRequestService.getLatestStatus(requestType, referenceType, referenceId, mode);
     }
 }

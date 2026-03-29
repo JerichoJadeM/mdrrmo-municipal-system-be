@@ -9,6 +9,7 @@ import com.isufst.mdrrmosystem.request.DispatchIncidentRequest;
 import com.isufst.mdrrmosystem.request.IncidentRequest;
 import com.isufst.mdrrmosystem.response.IncidentResponse;
 import com.isufst.mdrrmosystem.response.ResponseActionResponse;
+import com.isufst.mdrrmosystem.response.WarningItem;
 import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -31,6 +32,8 @@ public class IncidentService {
     private final EvacuationActivationRepository evacuationActivationRepository;
     private final ReliefDistributionRepository reliefDistributionRepository;
     private final OperationHistoryService operationHistoryService;
+    private final NotificationService notificationService;
+    private final OperationApprovalGuard operationApprovalGuard;
 
     public IncidentService(IncidentRepository incidentRepository,
                            FindAuthenticatedUser findAuthenticatedUser,
@@ -39,7 +42,9 @@ public class IncidentService {
                            BarangayRepository barangayRepository,
                            EvacuationActivationRepository evacuationActivationRepository,
                            ReliefDistributionRepository reliefDistributionRepository,
-                           OperationHistoryService operationHistoryService) {
+                           OperationHistoryService operationHistoryService,
+                           NotificationService notificationService,
+                           OperationApprovalGuard operationApprovalGuard) {
         this.incidentRepository = incidentRepository;
         this.findAuthenticatedUser = findAuthenticatedUser;
         this.userRepository = userRepository;
@@ -48,6 +53,8 @@ public class IncidentService {
         this.evacuationActivationRepository = evacuationActivationRepository;
         this.reliefDistributionRepository = reliefDistributionRepository;
         this.operationHistoryService = operationHistoryService;
+        this.notificationService = notificationService;
+        this.operationApprovalGuard = operationApprovalGuard;
     }
 
     @Transactional
@@ -73,7 +80,6 @@ public class IncidentService {
         incident.setDescription(incidentRequest.description().trim());
         incident.setReportedBy(findAuthenticatedUser.getAuthenticatedUser());
 
-        String oldStatus = incident.getStatus();
         Incident savedIncident = incidentRepository.save(incident);
 
         if (assignedResponder != null) {
@@ -99,6 +105,9 @@ public class IncidentService {
                 null,
                 null
         );
+
+        notifyResponderIfAssigned(savedIncident, "You were assigned as responder for incident " + savedIncident.getType());
+        notifyAllUsersIfHighOrCritical(savedIncident, "Incident marked HIGH/CRITICAL: " + savedIncident.getType());
 
         return mapToResponse(savedIncident);
     }
@@ -142,6 +151,14 @@ public class IncidentService {
                     "Only on-site or in-progress incidents can be resolved");
         }
 
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
+        operationApprovalGuard.validateOrThrowForIncidentTransition(
+                actor,
+                incident,
+                "RESOLVED",
+                buildIncidentWarnings(incident)
+        );
+
         String oldStatus = incident.getStatus();
         incident.setStatus("RESOLVED");
         Incident savedIncident = incidentRepository.save(incident);
@@ -157,14 +174,6 @@ public class IncidentService {
         }
 
         responseActionRepository.save(action);
-
-        // Optional future logic:
-        // if (incident.getAssignedResponder() != null) {
-        //     User responder = incident.getAssignedResponder();
-        //     responder.setAssignmentStatus("AVAILABLE");
-        //     userRepository.save(responder);
-        // }
-
 
         operationHistoryService.log(
                 "INCIDENT",
@@ -197,10 +206,6 @@ public class IncidentService {
         incident.setStatus("IN_PROGRESS");
         Incident savedIncident = incidentRepository.save(incident);
 
-        // Optional:
-        // responder.setAssignmentStatus("BUSY");
-        // userRepository.save(responder);
-
         ResponseAction action = new ResponseAction();
         action.setActionType("DISPATCH");
         action.setDescription("Responder " + responder.getFirstName() + " " + responder.getLastName() + " dispatched to scene");
@@ -221,6 +226,8 @@ public class IncidentService {
                 null
         );
 
+        notifyResponderIfAssigned(savedIncident, "You were dispatched to incident " + savedIncident.getType());
+
         return mapToResponse(savedIncident);
     }
 
@@ -240,6 +247,14 @@ public class IncidentService {
         if (incident.getAssignedResponder() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No responder assigned to this incident");
         }
+
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
+        operationApprovalGuard.validateOrThrowForIncidentTransition(
+                actor,
+                incident,
+                "ON_SITE",
+                buildIncidentWarnings(incident)
+        );
 
         String oldStatus = incident.getStatus();
         incident.setStatus("ON_SITE");
@@ -306,17 +321,20 @@ public class IncidentService {
         );
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+//  @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     @Transactional
     public IncidentResponse updateIncident(long incidentId, IncidentRequest incidentRequest) {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
 
+        Long oldResponderId = incident.getAssignedResponder() != null ? incident.getAssignedResponder().getId() : null;
+        String oldSeverity = incident.getSeverity();
+
         Barangay barangay = null;
         if (incidentRequest.barangayId() != null) {
             barangay = barangayRepository.findById(incidentRequest.barangayId())
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Barangay id not found"));
-
+            validateBatadBarangay(barangay);
         }
 
         User assignedResponder = null;
@@ -337,10 +355,21 @@ public class IncidentService {
             incident.setDescription(incidentRequest.description().trim());
         }
 
-        return mapToResponse(incidentRepository.save(incident));
+        Incident updated = incidentRepository.save(incident);
+
+        Long newResponderId = updated.getAssignedResponder() != null ? updated.getAssignedResponder().getId() : null;
+        if (newResponderId != null && !newResponderId.equals(oldResponderId)) {
+            notifyResponderIfAssigned(updated, "You were assigned as responder for incident " + updated.getType());
+        }
+
+        if (isSeverityEscalatedToHighOrCritical(oldSeverity, updated.getSeverity())) {
+            notifyAllUsersIfHighOrCritical(updated, "Incident escalated to HIGH/CRITICAL: " + updated.getType());
+        }
+
+        return mapToResponse(updated);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+//  @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     @Transactional
     public void deleteIncident(long incidentId) {
         Incident incident = incidentRepository.findById(incidentId)
@@ -359,5 +388,60 @@ public class IncidentService {
 
         incidentRepository.delete(incident);
         incidentRepository.flush();
+    }
+
+    private void notifyResponderIfAssigned(Incident incident, String message) {
+        if (incident.getAssignedResponder() == null) {
+            return;
+        }
+
+        notificationService.notifyUser(
+                incident.getAssignedResponder(),
+                "ASSIGNMENT",
+                "Incident Responder Assignment",
+                message,
+                "INCIDENT",
+                incident.getId()
+        );
+    }
+
+    private void notifyAllUsersIfHighOrCritical(Incident incident, String message) {
+        if (!isHighOrCritical(incident.getSeverity())) {
+            return;
+        }
+
+        notificationService.notifyAllUsers(
+                "WARNING",
+                "High/Critical Incident Alert",
+                message,
+                "INCIDENT",
+                incident.getId()
+        );
+    }
+
+    private boolean isHighOrCritical(String severity) {
+        if (severity == null) return false;
+        String value = severity.trim().toUpperCase();
+        return "HIGH".equals(value) || "CRITICAL".equals(value);
+    }
+
+    private boolean isSeverityEscalatedToHighOrCritical(String oldSeverity, String newSeverity) {
+        return !isHighOrCritical(oldSeverity) && isHighOrCritical(newSeverity);
+    }
+
+    private List<WarningItem> buildIncidentWarnings(Incident incident) {
+        if (isHighOrCritical(incident.getSeverity())) {
+            return List.of(
+                    new WarningItem(
+                            "WARNING",
+                            "INCIDENT_HIGH_SEVERITY",
+                            "High-severity incident transition requires acknowledgement.",
+                            "Submit acknowledgement request or approve as manager/admin.",
+                            true,
+                            true
+                    )
+            );
+        }
+        return List.of();
     }
 }

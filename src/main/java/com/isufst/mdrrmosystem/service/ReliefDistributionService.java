@@ -2,11 +2,17 @@ package com.isufst.mdrrmosystem.service;
 
 import com.isufst.mdrrmosystem.entity.*;
 import com.isufst.mdrrmosystem.repository.*;
+import com.isufst.mdrrmosystem.request.ApprovalRequestCreateRequest;
 import com.isufst.mdrrmosystem.request.ReliefDistributionRequest;
+import com.isufst.mdrrmosystem.response.ActionSubmissionResponse;
+import com.isufst.mdrrmosystem.response.ApprovalRequestResponse;
 import com.isufst.mdrrmosystem.response.ReliefDistributionResponse;
 import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
 import jakarta.persistence.Entity;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -22,6 +28,9 @@ public class ReliefDistributionService {
     private final InventoryRepository inventoryRepository;
     private final InventoryTransactionRepository inventoryTransactionRepository;
     private final FindAuthenticatedUser findAuthenticatedUser;
+    private final ApprovalRequestService approvalRequestService;
+    private final NotificationService notificationService;
+    private final ReliefDistributionExecutorService reliefDistributionExecutorService;
 
     public ReliefDistributionService(
             ReliefDistributionRepository repository,
@@ -31,7 +40,10 @@ public class ReliefDistributionService {
             UserRepository userRepository,
             InventoryRepository inventoryRepository,
             InventoryTransactionRepository inventoryTransactionRepository,
-            FindAuthenticatedUser findAuthenticatedUser) {
+            FindAuthenticatedUser findAuthenticatedUser,
+            ApprovalRequestService approvalRequestService,
+            NotificationService notificationService,
+            ReliefDistributionExecutorService reliefDistributionExecutorService) {
         this.repository = repository;
         this.incidentRepository = incidentRepository;
         this.calamityRepository = calamityRepository;
@@ -40,64 +52,70 @@ public class ReliefDistributionService {
         this.inventoryRepository = inventoryRepository;
         this.inventoryTransactionRepository = inventoryTransactionRepository;
         this.findAuthenticatedUser = findAuthenticatedUser;
+        this.approvalRequestService = approvalRequestService;
+        this.notificationService = notificationService;
+        this.reliefDistributionExecutorService = reliefDistributionExecutorService;
     }
 
-    public ReliefDistributionResponse distribute(
-            Long incidentId,
-            ReliefDistributionRequest request) {
-
+    @Transactional
+    public ActionSubmissionResponse distribute(Long incidentId, ReliefDistributionRequest request) {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new RuntimeException("Incident not found"));
 
-        User user = findAuthenticatedUser.getAuthenticatedUser();
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
 
         Inventory inventory = inventoryRepository.findById(request.inventoryId())
                 .orElseThrow(() -> new RuntimeException("Inventory not found"));
 
-        EvacuationActivation activation = null;
+        boolean isElevated = actor.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_MANAGER".equals(a.getAuthority()));
 
-        if (request.evacuationActivationId() != null) {
-            activation = activationRepository.findById(request.evacuationActivationId())
-                    .orElseThrow(() -> new RuntimeException("Activation not found"));
+        if (!isElevated) {
+            ApprovalRequestResponse created = approvalRequestService.createRequest(
+                    new ApprovalRequestCreateRequest(
+                            "RELIEF_DISTRIBUTION_REQUEST",
+                            "Relief distribution request for " + inventory.getName(),
+                            "Request to distribute " + request.quantity() + " " + inventory.getUnit() + " for incident " + incident.getType(),
+                            "INCIDENT",
+                            incident.getId(),
+                            """
+                            {
+                              "incidentId": %d,
+                              "inventoryId": %d,
+                              "quantity": %d,
+                              "evacuationActivationId": %s
+                            }
+                            """.formatted(
+                                    incidentId,
+                                    request.inventoryId(),
+                                    request.quantity(),
+                                    request.evacuationActivationId() != null ? request.evacuationActivationId().toString() : "null"
+                            )
+                    )
+            );
+
+            notificationService.notifyAdminsAndManagers(
+                    "REQUEST",
+                    "Relief Distribution Approval Required",
+                    actor.getFullName() + " requested distribution of " + inventory.getName() + ".",
+                    "APPROVAL_REQUEST",
+                    created.id()
+            );
+
+            return new ActionSubmissionResponse(false, true, "Relief distribution request submitted for approval.", created.id());
         }
 
-        // stock validation
-        if(request.quantity() <= 0){
-            throw new RuntimeException("Quantity must be greater than 0");
-        }
+        reliefDistributionExecutorService.executeIncidentDistribution(incidentId, request, actor);
 
-        if(inventory.getAvailableQuantity() < request.quantity()){
-            throw new RuntimeException("Insufficient inventory stock");
-        }
+        notificationService.notifyAllUsers(
+                "INVENTORY",
+                "Relief Distribution Completed",
+                "Relief distribution completed for " + inventory.getName(),
+                "INCIDENT",
+                incidentId
+        );
 
-        // deduct stock
-        inventory.setAvailableQuantity(inventory.getAvailableQuantity() - request.quantity());
-        inventoryRepository.save(inventory);
-
-        ReliefDistribution relief = new ReliefDistribution();
-        relief.setInventory(inventory);
-        relief.setQuantity(request.quantity());
-        relief.setDistributedAt(LocalDateTime.now());
-        relief.setIncident(incident);
-        relief.setEvacuationActivation(activation);
-        relief.setDistributedBy(user);
-
-        repository.save(relief);
-
-        // log inventory movement
-        InventoryTransaction invTrans = new  InventoryTransaction();
-
-        invTrans.setActionType("CONSUMED");
-        invTrans.setQuantity(request.quantity());
-        invTrans.setTimeStamp(LocalDateTime.now());
-        invTrans.setInventory(inventory);
-        invTrans.setIncident(incident);
-        invTrans.setPerformedBy(user);
-        invTrans.setDistribution(relief);
-
-        inventoryTransactionRepository.save(invTrans);
-
-        return map(relief);
+        return new ActionSubmissionResponse(true, false, "Relief distributed successfully.", null);
     }
 
     public List<ReliefDistributionResponse> getByIncident(Long incidentId) {
@@ -107,55 +125,65 @@ public class ReliefDistributionService {
                 .toList();
     }
 
-    public ReliefDistributionResponse distributeForCalamity(Long calamityId, ReliefDistributionRequest request) {
+    @Transactional
+    public ActionSubmissionResponse distributeForCalamity(Long calamityId, ReliefDistributionRequest request) {
         Calamity calamity = calamityRepository.findById(calamityId)
                 .orElseThrow(() -> new RuntimeException("Calamity not found"));
 
-        User user = findAuthenticatedUser.getAuthenticatedUser();
-        
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
+
         Inventory inventory = inventoryRepository.findById(request.inventoryId())
                 .orElseThrow(() -> new RuntimeException("Inventory not found"));
 
-        EvacuationActivation activation = null;
-        if (request.evacuationActivationId() != null) {
-            activation = activationRepository.findById(request.evacuationActivationId())
-                    .orElseThrow(() -> new RuntimeException("Activation not found"));
+        boolean isElevated = actor.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_MANAGER".equals(a.getAuthority()));
+
+        if (!isElevated) {
+            ApprovalRequestResponse created = approvalRequestService.createRequest(
+                    new ApprovalRequestCreateRequest(
+                            "RELIEF_DISTRIBUTION_REQUEST",
+                            "Relief distribution request for " + inventory.getName(),
+                            "Request to distribute " + request.quantity() + " " + inventory.getUnit() + " for calamity " + calamity.getType(),
+                            "CALAMITY",
+                            calamity.getId(),
+                            """
+                            {
+                              "calamityId": %d,
+                              "inventoryId": %d,
+                              "quantity": %d,
+                              "evacuationActivationId": %s
+                            }
+                            """.formatted(
+                                    calamityId,
+                                    request.inventoryId(),
+                                    request.quantity(),
+                                    request.evacuationActivationId() != null ? request.evacuationActivationId().toString() : "null"
+                            )
+                    )
+            );
+
+            notificationService.notifyAdminsAndManagers(
+                    "REQUEST",
+                    "Relief Distribution Approval Required",
+                    actor.getFullName() + " requested distribution of " + inventory.getName() + ".",
+                    "APPROVAL_REQUEST",
+                    created.id()
+            );
+
+            return new ActionSubmissionResponse(false, true, "Relief distribution request submitted for approval.", created.id());
         }
 
-        if (request.quantity() <= 0) {
-            throw new RuntimeException("Quantity must be greater than 0");
-        }
+        reliefDistributionExecutorService.executeCalamityDistribution(calamityId, request, actor);
 
-        if (inventory.getAvailableQuantity() < request.quantity()) {
-            throw new RuntimeException("Insufficient inventory stock");
-        }
+        notificationService.notifyAllUsers(
+                "INVENTORY",
+                "Relief Distribution Completed",
+                "Relief distribution completed for " + inventory.getName(),
+                "CALAMITY",
+                calamityId
+        );
 
-        inventory.setAvailableQuantity(inventory.getAvailableQuantity() - request.quantity());
-        inventoryRepository.save(inventory);
-
-        ReliefDistribution relief = new ReliefDistribution();
-        relief.setInventory(inventory);
-        relief.setQuantity(request.quantity());
-        relief.setDistributedAt(LocalDateTime.now());
-        relief.setIncident(null);
-        relief.setCalamity(calamity);
-        relief.setEvacuationActivation(activation);
-        relief.setDistributedBy(user);
-
-        repository.save(relief);
-
-        InventoryTransaction invTrans = new InventoryTransaction();
-        invTrans.setActionType("CONSUMED");
-        invTrans.setQuantity(request.quantity());
-        invTrans.setTimeStamp(LocalDateTime.now());
-        invTrans.setInventory(inventory);
-        invTrans.setIncident(null);
-        invTrans.setPerformedBy(user);
-        invTrans.setDistribution(relief);
-
-        inventoryTransactionRepository.save(invTrans);
-
-        return map(relief);
+        return new ActionSubmissionResponse(true, false, "Relief distributed successfully.", null);
     }
 
     public List<ReliefDistributionResponse> getByCalamity(Long calamityId) {
@@ -184,5 +212,9 @@ public class ReliefDistributionService {
                         : "N/A",
                 r.getDistributedBy().getUsername()
         );
+    }
+
+    private String escapeJson(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

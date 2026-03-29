@@ -64,7 +64,7 @@ public class CalamityService {
         return mapToResponse(savedCalamity);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+//    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     @Transactional
     public CalamityResponse updateCalamityRecord(long calamityId, CalamityRequest calamityRequest) {
         Calamity existingCalamity = calamityRepository.findById(calamityId)
@@ -91,7 +91,7 @@ public class CalamityService {
     }
 
 
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','USER')")
+    @PreAuthorize("@operationTransitionAccessEvaluator.canTransition('CALAMITY', #calamityId, 'MONITOR_REVIEW')")
     @Transactional
     public CalamityResponse markCalamityMonitoring(long calamityId, CalamityTransitionRequest request) {
         Calamity calamity = calamityRepository.findById(calamityId)
@@ -130,8 +130,7 @@ public class CalamityService {
         return mapToResponse(saved);
     }
 
-
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','USER')")
+    @PreAuthorize("@operationTransitionAccessEvaluator.canTransition('CALAMITY', #calamityId, 'RESOLVE_REVIEW')")
     @Transactional
     public CalamityResponse markCalamityResolved(long calamityId, CalamityTransitionRequest request) {
         Calamity calamity = calamityRepository.findById(calamityId)
@@ -172,7 +171,7 @@ public class CalamityService {
         return mapToResponse(saved);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','USER')")
+    @PreAuthorize("@operationTransitionAccessEvaluator.canTransition('CALAMITY', #calamityId, 'END_REVIEW')")
     @Transactional
     public CalamityResponse markCalamityEnded(long calamityId, CalamityTransitionRequest request) {
         Calamity calamity = calamityRepository.findById(calamityId)
@@ -360,7 +359,7 @@ public class CalamityService {
         return calamityRepository.countByDateBetween(LocalDate.now().withDayOfYear(1), LocalDate.now());
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+//  @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     @Transactional
     public void deleteCalamityRecord(long calamityId) {
         Calamity calamity = calamityRepository.findById(calamityId)

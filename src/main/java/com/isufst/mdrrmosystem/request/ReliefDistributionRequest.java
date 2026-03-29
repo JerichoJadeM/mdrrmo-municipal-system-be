@@ -2,7 +2,7 @@ package com.isufst.mdrrmosystem.request;
 
 public record ReliefDistributionRequest(
         Long inventoryId,
-        int quantity,
+        Integer quantity,
         Long evacuationActivationId, // nullable
         Long calamityId
 ) {

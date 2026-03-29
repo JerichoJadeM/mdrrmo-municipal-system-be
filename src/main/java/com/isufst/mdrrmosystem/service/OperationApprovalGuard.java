@@ -10,4 +10,5 @@ import java.util.List;
 public interface OperationApprovalGuard {
     void validateOrThrowForIncidentTransition(User actor, Incident incident, String transitionType, List<WarningItem> warnings);
     void validateOrThrowForCalamityTransition(User actor, Calamity calamity, String transitionType, List<WarningItem> warnings);
+    //approvalRequestService.hasApprovedRequest("OPERATION_ACKNOWLEDGEMENT", referenceType, referenceId, actor.getId())
 }

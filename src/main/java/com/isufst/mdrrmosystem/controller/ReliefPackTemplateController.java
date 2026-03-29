@@ -2,6 +2,7 @@ package com.isufst.mdrrmosystem.controller;
 
 import com.isufst.mdrrmosystem.request.ReliefPackDistributionRequest;
 import com.isufst.mdrrmosystem.request.ReliefPackTemplateRequest;
+import com.isufst.mdrrmosystem.response.ActionSubmissionResponse;
 import com.isufst.mdrrmosystem.response.ReliefPackReadinessResponse;
 import com.isufst.mdrrmosystem.response.ReliefPackTemplateResponse;
 import com.isufst.mdrrmosystem.service.ReliefPackTemplateService;
@@ -55,16 +56,26 @@ public class ReliefPackTemplateController {
     }
 
     @PostMapping("/{templateId}/distribute/incidents/{incidentId}")
-    public void distributeForIncident(@PathVariable Long templateId,
-                                      @PathVariable Long incidentId,
-                                      @RequestBody ReliefPackDistributionRequest request) {
-        service.distributeTemplateForIncident(templateId, incidentId, request.packCount(), request.evacuationActivationId());
+    public ActionSubmissionResponse distributeTemplateForIncident(@PathVariable Long templateId,
+                                                                  @PathVariable Long incidentId,
+                                                                  @RequestBody ReliefPackDistributionRequest request) {
+        return service.distributeTemplateForIncident(
+                templateId,
+                incidentId,
+                request.packCount(),
+                request.evacuationActivationId()
+        );
     }
 
     @PostMapping("/{templateId}/distribute/calamities/{calamityId}")
-    public void distributeForCalamity(@PathVariable Long templateId,
-                                      @PathVariable Long calamityId,
-                                      @RequestBody ReliefPackDistributionRequest request) {
-        service.distributeTemplateForCalamity(templateId, calamityId, request.packCount(), request.evacuationActivationId());
+    public ActionSubmissionResponse distributeTemplateForCalamity(@PathVariable Long templateId,
+                                                                  @PathVariable Long calamityId,
+                                                                  @RequestBody ReliefPackDistributionRequest request) {
+        return service.distributeTemplateForCalamity(
+                templateId,
+                calamityId,
+                request.packCount(),
+                request.evacuationActivationId()
+        );
     }
 }

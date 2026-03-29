@@ -87,4 +87,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
         WHERE a.authority = :authority
     """)
     long countUsersByAuthority(@Param("authority") String authority);
+
+    Optional<User> findByUsername(String username);
 }

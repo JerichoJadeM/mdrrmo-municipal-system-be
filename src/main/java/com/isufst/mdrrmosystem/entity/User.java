@@ -13,13 +13,13 @@ import java.util.Date;
 import java.util.List;
 
 @Entity
-@Table(name = "")
+@Table(name = "user")
 public class User implements UserDetails {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(nullable = false)
-    private long  id;
+    private Long  id;
 
     @Column(nullable = false, name = "first_name")
     private String firstName;
@@ -106,11 +106,11 @@ public class User implements UserDetails {
         this.coordinatorEligible = coordinatorEligible;
     }
 
-    public long getId() {
+    public Long getId() {
         return id;
     }
 
-    public void setId(long id) {
+    public void setId(Long id) {
         this.id = id;
     }
 

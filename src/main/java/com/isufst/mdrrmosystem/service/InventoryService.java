@@ -2,11 +2,15 @@ package com.isufst.mdrrmosystem.service;
 
 import com.isufst.mdrrmosystem.entity.*;
 import com.isufst.mdrrmosystem.repository.*;
+import com.isufst.mdrrmosystem.request.ApprovalRequestCreateRequest;
 import com.isufst.mdrrmosystem.request.InventoryProcurementRequest;
 import com.isufst.mdrrmosystem.request.InventoryRequest;
+import com.isufst.mdrrmosystem.response.ActionSubmissionResponse;
+import com.isufst.mdrrmosystem.response.ApprovalRequestResponse;
 import com.isufst.mdrrmosystem.response.InventoryResponse;
 import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -25,6 +29,9 @@ public class InventoryService {
     private final FindAuthenticatedUser findAuthenticatedUser;
     private final ExpenseRepository expenseRepository;
     private final InventoryTransactionRepository inventoryTransactionRepository;
+    private final NotificationService notificationService;
+    private final ApprovalRequestService approvalRequestService;
+    private final InventoryProcurementExecutorService inventoryProcurementExecutorService;
 
     public InventoryService(InventoryRepository inventoryRepository,
                             BudgetCategoryRepository budgetCategoryRepository,
@@ -32,7 +39,11 @@ public class InventoryService {
                             CalamityRepository calamityRepository,
                             FindAuthenticatedUser findAuthenticatedUser,
                             ExpenseRepository expenseRepository,
-                            InventoryTransactionRepository inventoryTransactionRepository) {
+                            InventoryTransactionRepository inventoryTransactionRepository,
+                            NotificationService notificationService,
+                            ApprovalRequestService  approvalRequestService,
+                            InventoryProcurementExecutorService inventoryProcurementExecutorService
+    ) {
         this.inventoryRepository = inventoryRepository;
         this.budgetCategoryRepository = budgetCategoryRepository;
         this.incidentRepository = incidentRepository;
@@ -40,6 +51,9 @@ public class InventoryService {
         this.findAuthenticatedUser = findAuthenticatedUser;
         this.expenseRepository = expenseRepository;
         this.inventoryTransactionRepository = inventoryTransactionRepository;
+        this.notificationService = notificationService;
+        this.approvalRequestService = approvalRequestService;
+        this.inventoryProcurementExecutorService = inventoryProcurementExecutorService;
     }
 
     @Transactional
@@ -136,8 +150,7 @@ public class InventoryService {
     }
 
     @Transactional
-    public InventoryResponse procureStock(long inventoryId, InventoryProcurementRequest request) {
-
+    public ActionSubmissionResponse procureStock(long inventoryId, InventoryProcurementRequest request) {
         Inventory inventory = inventoryRepository.findById(inventoryId)
                 .orElseThrow(() -> new RuntimeException("Inventory not found"));
 
@@ -153,49 +166,83 @@ public class InventoryService {
             throw new RuntimeException("Total cost must be greater than 0");
         }
 
-        BudgetCategory category = budgetCategoryRepository.findById(request.categoryId())
-                .orElseThrow(() -> new RuntimeException("Budget category not found"));
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
+        boolean isElevated = actor.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(role -> "ROLE_ADMIN".equals(role) || "ROLE_MANAGER".equals(role));
 
-        Incident incident = null;
-        if (request.incidentId() != null) {
-            incident = incidentRepository.findById(request.incidentId())
-                    .orElseThrow(() -> new RuntimeException("Incident not found"));
+        if (!isElevated) {
+            ApprovalRequestResponse created = approvalRequestService.createRequest(
+                    new ApprovalRequestCreateRequest(
+                            "PROCUREMENT_REQUEST",
+                            "Procurement request for " + inventory.getName(),
+                            "Request to procure " + request.quantityAdded() + " " + inventory.getUnit() + " of " + inventory.getName(),
+                            "INVENTORY",
+                            inventory.getId(),
+                            buildProcurementPayloadJson(inventory, request)
+                    )
+            );
+
+            notificationService.notifyAdminsAndManagers(
+                    "REQUEST",
+                    "Procurement Approval Required",
+                    actor.getFullName() + " requested procurement of " + inventory.getName() + ".",
+                    "APPROVAL_REQUEST",
+                    created.id()
+            );
+
+            return new ActionSubmissionResponse(
+                    false,
+                    true,
+                    "Procurement request submitted for approval.",
+                    created.id()
+            );
         }
 
-        Calamity calamity = null;
-        if(request.calamityId() != null) {
-            calamity = calamityRepository.findById(request.calamityId())
-                    .orElseThrow(() -> new RuntimeException("Calamity not found"));
-        }
+        inventoryProcurementExecutorService.executeProcurement(inventoryId, request, actor);
 
-        inventory.setTotalQuantity(inventory.getTotalQuantity() + request.quantityAdded());
-        inventory.setAvailableQuantity(inventory.getAvailableQuantity() + request.quantityAdded());
-        inventoryRepository.save(inventory);
+        notificationService.notifyAllUsers(
+                "INVENTORY",
+                "Procurement Completed",
+                "Inventory procurement completed for " + inventory.getName(),
+                "INVENTORY",
+                inventoryId
+        );
 
-        Expense expense = new Expense();
-        expense.setDescription(request.description() != null && !request.description().isBlank()
-                ? request.description()
-                : "Procurement / replenishment for " + inventory.getName());
-        expense.setAmount(request.totalCost());
-        expense.setExpenseDate(request.expenseDate() != null ? request.expenseDate() : LocalDate.now());
-        expense.setCategory(category);
-        expense.setIncident(incident);
-        expense.setCalamity(calamity);
-        expense.setCreatedBy(findAuthenticatedUser.getAuthenticatedUser());
-        expenseRepository.save(expense);
-
-        InventoryTransaction transaction = new InventoryTransaction();
-        transaction.setActionType("RESTOCK");
-        transaction.setQuantity(request.quantityAdded());
-        transaction.setTimeStamp(LocalDateTime.now());
-        transaction.setInventory(inventory);
-        transaction.setIncident(incident);
-        transaction.setPerformedBy(findAuthenticatedUser.getAuthenticatedUser());
-        inventoryTransactionRepository.save(transaction);
-
-        inventory.setProcurementExpense(expense);
-        inventoryRepository.save(inventory);
-
-        return mapToResponse(inventory);
+        return new ActionSubmissionResponse(
+                true,
+                false,
+                "Procurement saved successfully.",
+                null
+        );
     }
+
+    private String buildProcurementPayloadJson(Inventory inventory, InventoryProcurementRequest request) {
+        return """
+            {
+              "inventoryId": %d,
+              "quantityAdded": %d,
+              "totalCost": %s,
+              "categoryId": %d,
+              "incidentId": %s,
+              "calamityId": %s,
+              "expenseDate": "%s",
+              "description": "%s"
+            }
+            """.formatted(
+                inventory.getId(),
+                request.quantityAdded(),
+                request.totalCost(),
+                request.categoryId(),
+                request.incidentId() != null ? request.incidentId().toString() : "null",
+                request.calamityId() != null ? request.calamityId().toString() : "null",
+                request.expenseDate() != null ? request.expenseDate().toString() : "",
+                escapeJson(request.description() != null ? request.description() : "")
+        );
+    }
+
+    private String escapeJson(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
 }
