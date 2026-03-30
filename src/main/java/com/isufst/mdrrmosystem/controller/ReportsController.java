@@ -41,18 +41,6 @@ public class ReportsController {
         return reportsService.getFinancial(year);
     }
 
-    @GetMapping("/audit-trail")
-    public List<AuditTrailResponse> getAuditTrail(
-            @RequestParam(required = false) String operationType,
-            @RequestParam(required = false) String actionType,
-            @RequestParam(required = false) String performedBy,
-            @RequestParam(required = false) LocalDate from,
-            @RequestParam(required = false) LocalDate to,
-            @RequestParam(required = false) Long operationId
-    ) {
-        return reportsService.getAuditTrail(operationType, actionType, performedBy, from, to, operationId);
-    }
-
     @GetMapping("/incidents")
     public IncidentReportResponse getIncidentReport(
             @RequestParam(required = false) LocalDate from,
@@ -86,5 +74,18 @@ public class ReportsController {
             @RequestParam(required = false) Integer year
     ) {
         return reportsExportService.exportPdf(tab, from, to, year);
+    }
+
+    @GetMapping("/audit-trail")
+    public List<AuditTrailResponse> getAuditTrail(
+            @RequestParam(required = false) String module,
+            @RequestParam(required = false) String recordType,
+            @RequestParam(required = false) String actionType,
+            @RequestParam(required = false) String performedBy,
+            @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to,
+            @RequestParam(required = false) Long recordId
+    ) {
+        return reportsService.getAuditTrail(module, recordType, actionType, performedBy, from, to, recordId);
     }
 }

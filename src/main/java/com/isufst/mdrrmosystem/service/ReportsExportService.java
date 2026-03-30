@@ -113,7 +113,7 @@ public class ReportsExportService {
 
     private void writeAudit(Document document, Font sectionFont, Font bodyFont,
                             LocalDate from, LocalDate to) throws DocumentException {
-        java.util.List<AuditTrailResponse> rows = reportsService.getAuditTrail(null, null, null, from, to, null);
+        java.util.List<AuditTrailResponse> rows = reportsService.getAuditTrail(null, null, null, null, from, to, null);
 
         document.add(new Paragraph("Audit Trail", sectionFont));
         for (AuditTrailResponse row : rows) {

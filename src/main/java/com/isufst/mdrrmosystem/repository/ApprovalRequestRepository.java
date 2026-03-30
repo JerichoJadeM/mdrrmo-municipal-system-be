@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -87,5 +88,25 @@ public interface ApprovalRequestRepository extends JpaRepository<ApprovalRequest
     boolean existsApprovedOperationAcknowledgement(@Param("referenceType") String referenceType,
                                                    @Param("referenceId") Long referenceId,
                                                    @Param("mode") String mode);
+
+    @Query("""
+        SELECT ar
+        FROM ApprovalRequest ar
+        WHERE (:actionType IS NULL OR UPPER(ar.status) = :actionType OR UPPER(ar.requestType) = :actionType)
+          AND (:performedBy IS NULL OR (
+                (ar.requestedBy IS NOT NULL AND UPPER(CONCAT(COALESCE(ar.requestedBy.firstName, ''), ' ', COALESCE(ar.requestedBy.lastName, ''))) LIKE CONCAT('%', :performedBy, '%'))
+                OR
+                (ar.reviewedBy IS NOT NULL AND UPPER(CONCAT(COALESCE(ar.reviewedBy.firstName, ''), ' ', COALESCE(ar.reviewedBy.lastName, ''))) LIKE CONCAT('%', :performedBy, '%'))
+              ))
+          AND (:recordId IS NULL OR ar.id = :recordId OR ar.referenceId = :recordId)
+          AND (:fromDate IS NULL OR ar.createdAt >= :fromDate)
+          AND (:toDate IS NULL OR ar.createdAt < :toDate)
+        ORDER BY ar.createdAt DESC
+    """)
+    List<ApprovalRequest> searchAuditTrail(@Param("actionType") String actionType,
+                                           @Param("performedBy") String performedBy,
+                                           @Param("recordId") Long recordId,
+                                           @Param("fromDate") LocalDateTime fromDate,
+                                           @Param("toDate") LocalDateTime toDate);
 
 }

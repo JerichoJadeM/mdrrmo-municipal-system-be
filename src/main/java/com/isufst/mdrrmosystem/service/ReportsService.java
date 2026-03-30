@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -29,6 +30,9 @@ public class ReportsService {
     private final InventoryTransactionRepository inventoryTransactionRepository;
     private final ReliefDistributionRepository reliefDistributionRepository;
     private final EvacuationCenterRepository evacuationCenterRepository;
+    private final AdminActionLogRepository adminActionLogRepository;
+    private final ExpenseRepository expenseRepository;
+    private final ApprovalRequestRepository approvalRequestRepository;
 
     public ReportsService(IncidentRepository incidentRepository,
                           CalamityRepository calamityRepository,
@@ -40,7 +44,10 @@ public class ReportsService {
                           BudgetForecastService budgetForecastService,
                           InventoryTransactionRepository inventoryTransactionRepository,
                           ReliefDistributionRepository reliefDistributionRepository,
-                          EvacuationCenterRepository evacuationCenterRepository) {
+                          EvacuationCenterRepository evacuationCenterRepository,
+                          AdminActionLogRepository adminActionLogRepository,
+                          ExpenseRepository expenseRepository,
+                          ApprovalRequestRepository approvalRequestRepository) {
         this.incidentRepository = incidentRepository;
         this.calamityRepository = calamityRepository;
         this.inventoryRepository = inventoryRepository;
@@ -52,6 +59,9 @@ public class ReportsService {
         this.inventoryTransactionRepository = inventoryTransactionRepository;
         this.reliefDistributionRepository = reliefDistributionRepository;
         this.evacuationCenterRepository = evacuationCenterRepository;
+        this.adminActionLogRepository = adminActionLogRepository;
+        this.expenseRepository = expenseRepository;
+        this.approvalRequestRepository = approvalRequestRepository;
     }
 
     public ReportsSummaryResponse getSummary(LocalDate from, LocalDate to, Integer year) {
@@ -81,9 +91,7 @@ public class ReportsService {
 
         long openEvacuationCenters = evacuationActivationRepository.countByStatus("OPEN");
 
-        long totalAuditEvents = operationHistoryRepository.countAuditTrail(
-                null, null, null, null, fromDateTime, toDateTime
-        );
+        long totalAuditEvents = getAuditTrail(null, null, null, null, from, to, null).size();
 
         int resolvedYear;
         if (year != null) {
@@ -125,37 +133,168 @@ public class ReportsService {
         );
     }
 
-    public List<AuditTrailResponse> getAuditTrail(String operationType,
+    public List<AuditTrailResponse> getAuditTrail(String module,
+                                                  String recordType,
                                                   String actionType,
                                                   String performedBy,
                                                   LocalDate from,
                                                   LocalDate to,
-                                                  Long operationId) {
+                                                  Long recordId) {
+
+        String normalizedModule = normalize(module);
+        String normalizedRecordType = normalize(recordType);
+        String normalizedActionType = normalize(actionType);
+        String normalizedPerformedBy = normalize(performedBy);
 
         LocalDateTime fromDateTime = from != null ? from.atStartOfDay() : null;
         LocalDateTime toDateTime = to != null ? to.plusDays(1).atStartOfDay() : null;
+        LocalDate expenseToDate = to != null ? to.plusDays(1) : null;
 
-        return operationHistoryRepository.searchAuditTrail(
-                        normalize(operationType),
-                        normalize(actionType),
-                        normalize(performedBy),
-                        operationId,
-                        fromDateTime,
-                        toDateTime
-                )
-                .stream()
-                .map(history -> new AuditTrailResponse(
-                        history.getId(),
-                        "OPERATIONS",
-                        history.getOperationType(),
-                        history.getOperationId(),
-                        history.getActionType(),
-                        history.getFromStatus(),
-                        history.getToStatus(),
-                        history.getDescription(),
-                        history.getMetadataJson(),
-                        history.getPerformedBy(),
-                        history.getPerformedAt()
+        List<AuditTrailResponse> merged = new ArrayList<>();
+
+        if (normalizedModule == null || "OPERATIONS".equals(normalizedModule) || "DISASTER_MANAGEMENT".equals(normalizedModule)) {
+            List<AuditTrailResponse> operationRows = operationHistoryRepository.searchAuditTrail(
+                            normalizeOperationTypeFilter(normalizedRecordType),
+                            normalizedActionType,
+                            normalizedPerformedBy,
+                            recordId,
+                            fromDateTime,
+                            toDateTime
+                    )
+                    .stream()
+                    .map(history -> new AuditTrailResponse(
+                            history.getId(),
+                            resolveOperationsModule(history.getOperationType()),
+                            history.getOperationType(),
+                            history.getOperationId(),
+                            history.getActionType(),
+                            history.getFromStatus(),
+                            history.getToStatus(),
+                            history.getDescription(),
+                            history.getMetadataJson(),
+                            history.getPerformedBy(),
+                            history.getPerformedAt()
+                    ))
+                    .toList();
+
+            merged.addAll(operationRows);
+        }
+
+        if (normalizedModule == null || "ADMINISTRATION".equals(normalizedModule)) {
+            List<AuditTrailResponse> adminRows = adminActionLogRepository.searchAuditTrail(
+                            normalizedActionType,
+                            normalizedPerformedBy,
+                            recordId,
+                            fromDateTime,
+                            toDateTime
+                    )
+                    .stream()
+                    .map(log -> new AuditTrailResponse(
+                            log.getId(),
+                            "ADMINISTRATION",
+                            "USER",
+                            log.getTargetUser() != null ? log.getTargetUser().getId() : null,
+                            log.getActionType(),
+                            null,
+                            null,
+                            log.getDescription(),
+                            null,
+                            log.getActor() != null ? log.getActor().getFullName() : "--",
+                            log.getCreatedAt()
+                    ))
+                    .toList();
+
+            merged.addAll(adminRows);
+        }
+
+        if (normalizedModule == null || "RESOURCES".equals(normalizedModule)) {
+            List<AuditTrailResponse> transactionRows = inventoryTransactionRepository.searchAuditTrail(
+                            normalizedActionType,
+                            normalizedPerformedBy,
+                            recordId,
+                            fromDateTime,
+                            toDateTime
+                    )
+                    .stream()
+                    .map(tx -> new AuditTrailResponse(
+                            tx.getId(),
+                            "RESOURCES",
+                            "INVENTORY_TRANSACTION",
+                            tx.getId(),
+                            tx.getActionType(),
+                            null,
+                            null,
+                            buildInventoryTransactionDescription(tx),
+                            buildInventoryTransactionMetadata(tx),
+                            tx.getPerformedBy() != null ? tx.getPerformedBy().getFullName() : "--",
+                            tx.getTimeStamp()
+                    ))
+                    .toList();
+
+            merged.addAll(transactionRows);
+        }
+
+        if (normalizedModule == null || "BUDGET".equals(normalizedModule)) {
+            List<AuditTrailResponse> expenseRows = expenseRepository.searchAuditTrail(
+                            normalizedPerformedBy,
+                            recordId,
+                            from,
+                            expenseToDate
+                    )
+                    .stream()
+                    .map(expense -> new AuditTrailResponse(
+                            expense.getId(),
+                            "BUDGET",
+                            "EXPENSE",
+                            expense.getId(),
+                            "CREATE",
+                            null,
+                            "RECORDED",
+                            expense.getDescription(),
+                            buildExpenseMetadata(expense),
+                            expense.getCreatedBy() != null ? expense.getCreatedBy().getFullName() : "--",
+                            expense.getExpenseDate() != null ? expense.getExpenseDate().atStartOfDay() : null
+                    ))
+                    .toList();
+
+            merged.addAll(expenseRows);
+        }
+
+        if (normalizedModule == null || "PROCUREMENT".equals(normalizedModule) || "ADMINISTRATION".equals(normalizedModule)) {
+            List<AuditTrailResponse> approvalRows = approvalRequestRepository.searchAuditTrail(
+                            normalizedActionType,
+                            normalizedPerformedBy,
+                            recordId,
+                            fromDateTime,
+                            toDateTime
+                    )
+                    .stream()
+                    .filter(ar -> normalizedModule == null
+                            || ("PROCUREMENT".equals(normalizedModule) && isProcurementLike(ar))
+                            || ("ADMINISTRATION".equals(normalizedModule) && !isProcurementLike(ar)))
+                    .map(ar -> new AuditTrailResponse(
+                            ar.getId(),
+                            resolveApprovalModule(ar),
+                            "APPROVAL_REQUEST",
+                            ar.getId(),
+                            ar.getStatus(),
+                            "PENDING".equalsIgnoreCase(ar.getStatus()) ? null : "PENDING",
+                            ar.getStatus(),
+                            ar.getTitle(),
+                            ar.getPayloadJson(),
+                            resolveApprovalPerformedBy(ar),
+                            ar.getReviewedAt() != null ? ar.getReviewedAt() : ar.getCreatedAt()
+                    ))
+                    .toList();
+
+            merged.addAll(approvalRows);
+        }
+
+        return merged.stream()
+                .filter(item -> normalizedRecordType == null || normalize(item.recordType()).equals(normalizedRecordType))
+                .sorted(Comparator.comparing(
+                        AuditTrailResponse::performedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())
                 ))
                 .toList();
     }
@@ -351,6 +490,83 @@ public class ReportsService {
                 inventoryTransactions,
                 reliefRows
         );
+    }
+
+    private String normalizeOperationTypeFilter(String recordType) {
+        if (recordType == null) return null;
+
+        return switch (recordType) {
+            case "INCIDENT", "CALAMITY" -> recordType;
+            default -> null;
+        };
+    }
+
+    private String resolveOperationsModule(String operationType) {
+        if (operationType == null) return "OPERATIONS";
+
+        return switch (operationType.trim().toUpperCase()) {
+            case "CALAMITY" -> "DISASTER_MANAGEMENT";
+            case "INCIDENT" -> "OPERATIONS";
+            default -> "OPERATIONS";
+        };
+    }
+
+    private String buildInventoryTransactionDescription(InventoryTransaction tx) {
+        String itemName = tx.getInventory() != null ? tx.getInventory().getName() : "Unknown item";
+        return "Inventory transaction for " + itemName;
+    }
+
+    private String buildInventoryTransactionMetadata(InventoryTransaction tx) {
+        Long inventoryId = tx.getInventory() != null ? tx.getInventory().getId() : null;
+        Long incidentId = tx.getIncident() != null ? tx.getIncident().getId() : null;
+        Long distributionId = tx.getDistribution() != null ? tx.getDistribution().getId() : null;
+
+        return """
+        {"inventoryId":%s,"incidentId":%s,"distributionId":%s,"quantity":%d}
+        """.formatted(
+                inventoryId != null ? inventoryId.toString() : "null",
+                incidentId != null ? incidentId.toString() : "null",
+                distributionId != null ? distributionId.toString() : "null",
+                tx.getQuantity()
+        );
+    }
+
+    private String buildExpenseMetadata(Expense expense) {
+        Long categoryId = expense.getCategory() != null ? expense.getCategory().getId() : null;
+        Long incidentId = expense.getIncident() != null ? expense.getIncident().getId() : null;
+        Long calamityId = expense.getCalamity() != null ? expense.getCalamity().getId() : null;
+
+        return """
+        {"categoryId":%s,"incidentId":%s,"calamityId":%s,"amount":%s}
+        """.formatted(
+                categoryId != null ? categoryId.toString() : "null",
+                incidentId != null ? incidentId.toString() : "null",
+                calamityId != null ? calamityId.toString() : "null",
+                expense.getAmount()
+        );
+    }
+
+    private boolean isProcurementLike(ApprovalRequest request) {
+        if (request == null || request.getRequestType() == null) return false;
+        String type = request.getRequestType().trim().toUpperCase();
+
+        return type.contains("PROCUREMENT")
+                || type.contains("RELIEF_DISTRIBUTION")
+                || type.contains("RELIEF_PACK_DISTRIBUTION");
+    }
+
+    private String resolveApprovalModule(ApprovalRequest request) {
+        return isProcurementLike(request) ? "PROCUREMENT" : "ADMINISTRATION";
+    }
+
+    private String resolveApprovalPerformedBy(ApprovalRequest request) {
+        if (request.getReviewedBy() != null) {
+            return request.getReviewedBy().getFullName();
+        }
+        if (request.getRequestedBy() != null) {
+            return request.getRequestedBy().getFullName();
+        }
+        return "--";
     }
 
     private boolean isLowStock(Inventory inventory) {

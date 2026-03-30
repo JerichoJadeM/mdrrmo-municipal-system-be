@@ -30,6 +30,14 @@ public class AdminAuditLogController {
             @RequestParam(required = false) LocalDate from,
             @RequestParam(required = false) LocalDate to
     ) {
-        return reportsService.getAuditTrail(category, actionType, performedBy, from, to, null);
+        return reportsService.getAuditTrail(
+                "ADMINISTRATION",
+                category,
+                actionType,
+                performedBy,
+                from,
+                to,
+                null
+        );
     }
 }

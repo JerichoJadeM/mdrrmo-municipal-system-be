@@ -64,7 +64,7 @@ public class DashboardOverviewService {
         LocalDate from = LocalDate.now().minusDays(30);
         LocalDate to = LocalDate.now();
         List<AuditTrailResponse> recentActivity =
-                reportsService.getAuditTrail(null, null, null, from, to, null);
+                reportsService.getAuditTrail(null, null, null, null, from, to, null);
 
         return new DashboardOverviewResponse(
                 LocalDateTime.now(),
