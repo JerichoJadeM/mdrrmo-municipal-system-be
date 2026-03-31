@@ -12,12 +12,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 @Service
 public class ResourcesReadinessService {
 
-    private static final Set<String> RELIEF_CATEGORIES = Set.of("FOOD", "RELIEF", "WATER", "HYGIENE", "MEDICAL");
+    private static final Set<String> RELIEF_CATEGORIES =
+            Set.of("FOOD", "RELIEF", "WATER", "HYGIENE", "MEDICAL");
 
     private final InventoryRepository inventoryRepository;
     private final EvacuationActivationRepository evacuationActivationRepository;
@@ -50,7 +52,7 @@ public class ResourcesReadinessService {
         List<EvacuationActivation> openCenters = evacuationActivationRepository.findByStatus("OPEN");
         int totalCapacity = openCenters.stream()
                 .filter(a -> a.getCenter() != null)
-                .mapToInt(a -> a.getCenter().getCapacity())
+                .mapToInt(a -> Math.max(a.getCenter().getCapacity(), 0))
                 .sum();
         int totalEvacuees = openCenters.stream()
                 .mapToInt(EvacuationActivation::getCurrentEvacuees)
@@ -78,10 +80,34 @@ public class ResourcesReadinessService {
         long inventoryLowStockCount = inventory.stream().filter(this::isLowStock).count();
         long inventoryOutOfStockCount = inventory.stream().filter(this::isOutOfStock).count();
 
+        long usableInventoryCount = inventory.stream()
+                .filter(i -> i.getAvailableQuantity() > 0)
+                .count();
+
+        long criticalAvailableCount = inventory.stream()
+                .filter(i -> Boolean.TRUE.equals(i.getCriticalItem()))
+                .filter(i -> i.getAvailableQuantity() > 0)
+                .count();
+
+        long criticalLowOrOutCount = inventory.stream()
+                .filter(i -> Boolean.TRUE.equals(i.getCriticalItem()))
+                .filter(i -> isLowStock(i) || isOutOfStock(i))
+                .count();
+
+        long distinctInventoryCategories = inventory.stream()
+                .map(Inventory::getCategory)
+                .map(this::normalize)
+                .filter(s -> !s.isBlank())
+                .distinct()
+                .count();
+
         List<Inventory> reliefInventory = inventory.stream().filter(this::isReliefItem).toList();
         long reliefLowStockCount = reliefInventory.stream().filter(this::isLowStock).count();
         long estimatedFamilyCoverage = reliefInventory.stream()
-                .filter(i -> "FOOD".equalsIgnoreCase(i.getCategory()) || "RELIEF".equalsIgnoreCase(i.getCategory()))
+                .filter(i -> {
+                    String category = normalize(i.getCategory());
+                    return "FOOD".equals(category) || "RELIEF".equals(category);
+                })
                 .mapToLong(Inventory::getAvailableQuantity)
                 .sum();
 
@@ -93,10 +119,12 @@ public class ResourcesReadinessService {
         int totalEvacuees = 0;
 
         for (EvacuationActivation activation : openCenters) {
-            if (activation.getCenter() == null) continue;
+            if (activation.getCenter() == null) {
+                continue;
+            }
 
             int capacity = Math.max(activation.getCenter().getCapacity(), 0);
-            int evacuees = activation.getCurrentEvacuees();
+            int evacuees = Math.max(activation.getCurrentEvacuees(), 0);
             int occupancy = capacity > 0
                     ? Math.min(100, Math.round((evacuees * 100f) / capacity))
                     : 0;
@@ -104,9 +132,9 @@ public class ResourcesReadinessService {
             totalCapacity += capacity;
             totalEvacuees += evacuees;
 
-            if (occupancy >= 95) {
+            if (capacity > 0 && occupancy >= 95) {
                 fullCentersCount++;
-            } else if (occupancy >= 80) {
+            } else if (capacity > 0 && occupancy >= 80) {
                 nearFullCentersCount++;
             }
         }
@@ -120,32 +148,70 @@ public class ResourcesReadinessService {
         double forecastGap = budget.totalAllotment() * 0.10;
 
         String inventoryRiskLevel = deriveInventoryRisk(
+                inventory,
+                usableInventoryCount,
+                distinctInventoryCategories,
+                criticalAvailableCount,
                 inventoryLowStockCount,
                 inventoryOutOfStockCount,
-                inventory.stream()
-                        .filter(i -> Boolean.TRUE.equals(i.getCriticalItem()) && (isLowStock(i) || isOutOfStock(i)))
-                        .count()
+                criticalLowOrOutCount
         );
 
         String reliefRiskLevel = deriveReliefRisk(reliefLowStockCount, estimatedFamilyCoverage);
-        String evacuationRiskLevel = deriveEvacuationRisk(fullCentersCount, nearFullCentersCount, activeCentersCount);
-        String budgetRiskLevel = deriveBudgetRisk(budgetUtilizationRate);
+        String evacuationRiskLevel = deriveEvacuationRisk(
+                activeCentersCount,
+                totalCapacity,
+                fullCentersCount,
+                nearFullCentersCount
+        );
+        String budgetRiskLevel = deriveBudgetRisk(budgetUtilizationRate, budget.totalRemaining());
 
-        int score = 0;
-        score += riskPoints(inventoryRiskLevel);
-        score += riskPoints(reliefRiskLevel);
-        score += riskPoints(evacuationRiskLevel);
-        score += riskPoints(budgetRiskLevel);
-
-        int overallReadinessScore = Math.min(100, score);
-        String overallReadinessRiskLevel = deriveOverall(overallReadinessScore);
+        int overallReadinessScore = deriveOverallReadinessScore(
+                inventoryRiskLevel,
+                reliefRiskLevel,
+                evacuationRiskLevel,
+                budgetRiskLevel
+        );
+        String overallReadinessRiskLevel = deriveOverallReadinessRiskLevel(
+                inventoryRiskLevel,
+                reliefRiskLevel,
+                evacuationRiskLevel,
+                budgetRiskLevel,
+                overallReadinessScore
+        );
 
         List<String> warnings = new ArrayList<>();
-        if (inventoryLowStockCount > 0) warnings.add("Some inventory items are low or out of stock.");
-        if (reliefLowStockCount > 0) warnings.add("Relief-related inventory items need replenishment.");
-        if (nearFullCentersCount > 0) warnings.add("One or more evacuation centers are near full.");
-        if (fullCentersCount > 0) warnings.add("One or more evacuation centers are already full.");
-        if (budgetUtilizationRate >= 75) warnings.add("Budget utilization is high and may affect response readiness.");
+
+        if (inventory.isEmpty() || usableInventoryCount == 0) {
+            warnings.add("No usable inventory is currently available.");
+        }
+        if (distinctInventoryCategories < 4) {
+            warnings.add("Inventory category coverage is too limited for broader emergency operations.");
+        }
+        if (criticalAvailableCount < 3) {
+            warnings.add("Critical response inventory coverage is insufficient.");
+        }
+        if (inventoryLowStockCount > 0) {
+            warnings.add("Some inventory items are low or out of stock.");
+        }
+        if (reliefLowStockCount > 0) {
+            warnings.add("Relief-related inventory items need replenishment.");
+        }
+        if (activeCentersCount == 0 || totalCapacity <= 0) {
+            warnings.add("No evacuation center capacity is currently available.");
+        }
+        if (nearFullCentersCount > 0) {
+            warnings.add("One or more evacuation centers are near full.");
+        }
+        if (fullCentersCount > 0) {
+            warnings.add("One or more evacuation centers are already full.");
+        }
+        if (budgetUtilizationRate >= 80) {
+            warnings.add("Budget utilization is high and may affect response readiness.");
+        }
+        if (budget.totalRemaining() <= 0) {
+            warnings.add("Remaining budget is already exhausted.");
+        }
 
         return new ResourcesReadinessSummaryResponse(
                 inventoryRiskLevel,
@@ -170,7 +236,7 @@ public class ResourcesReadinessService {
 
     private boolean isReliefItem(Inventory inventory) {
         return inventory.getCategory() != null
-                && RELIEF_CATEGORIES.contains(inventory.getCategory().trim().toUpperCase());
+                && RELIEF_CATEGORIES.contains(inventory.getCategory().trim().toUpperCase(Locale.ROOT));
     }
 
     private boolean isOutOfStock(Inventory inventory) {
@@ -182,47 +248,140 @@ public class ResourcesReadinessService {
         return inventory.getAvailableQuantity() <= reorderLevel;
     }
 
-    private String deriveInventoryRisk(long lowCount, long outCount, long criticalLowCount) {
-        if (outCount >= 3 || criticalLowCount >= 3) return "CRITICAL";
-        if (lowCount >= 5 || outCount >= 1) return "HIGH";
-        if (lowCount >= 2) return "MODERATE";
+    private String deriveInventoryRisk(List<Inventory> inventory,
+                                       long usableInventoryCount,
+                                       long distinctInventoryCategories,
+                                       long criticalAvailableCount,
+                                       long inventoryLowStockCount,
+                                       long inventoryOutOfStockCount,
+                                       long criticalLowOrOutCount) {
+        if (inventory == null || inventory.isEmpty() || usableInventoryCount == 0) {
+            return "CRITICAL";
+        }
+
+        if (distinctInventoryCategories < 4 || criticalAvailableCount < 3 || usableInventoryCount < 5) {
+            return "CRITICAL";
+        }
+
+        if (inventoryOutOfStockCount >= 3 || criticalLowOrOutCount >= 2) {
+            return "CRITICAL";
+        }
+
+        if (inventoryLowStockCount >= 5 || inventoryOutOfStockCount >= 1) {
+            return "HIGH";
+        }
+
+        if (inventoryLowStockCount >= 2) {
+            return "MODERATE";
+        }
+
         return "LOW";
     }
 
     private String deriveReliefRisk(long reliefLowStockCount, long estimatedFamilyCoverage) {
-        if (estimatedFamilyCoverage < 20 || reliefLowStockCount >= 5) return "CRITICAL";
-        if (estimatedFamilyCoverage < 50 || reliefLowStockCount >= 3) return "HIGH";
-        if (reliefLowStockCount >= 1) return "MODERATE";
+        if (estimatedFamilyCoverage < 20 || reliefLowStockCount >= 5) {
+            return "CRITICAL";
+        }
+        if (estimatedFamilyCoverage < 50 || reliefLowStockCount >= 3) {
+            return "HIGH";
+        }
+        if (reliefLowStockCount >= 1) {
+            return "MODERATE";
+        }
         return "LOW";
     }
 
-    private String deriveEvacuationRisk(long fullCenters, long nearFullCenters, long activeCenters) {
-        if (fullCenters > 0) return "CRITICAL";
-        if (nearFullCenters >= 2) return "HIGH";
-        if (nearFullCenters == 1 || activeCenters > 0) return "MODERATE";
+    private String deriveEvacuationRisk(long activeCenters,
+                                        int totalCapacity,
+                                        long fullCenters,
+                                        long nearFullCenters) {
+        if (activeCenters <= 0 || totalCapacity <= 0) {
+            return "CRITICAL";
+        }
+        if (fullCenters > 0) {
+            return "CRITICAL";
+        }
+        if (nearFullCenters >= 2) {
+            return "HIGH";
+        }
+        if (nearFullCenters == 1) {
+            return "MODERATE";
+        }
         return "LOW";
     }
 
-    private String deriveBudgetRisk(int utilizationRate) {
-        if (utilizationRate >= 90) return "CRITICAL";
-        if (utilizationRate >= 75) return "HIGH";
-        if (utilizationRate >= 50) return "MODERATE";
+    private String deriveBudgetRisk(int utilizationRate, double remainingBudget) {
+        if (remainingBudget <= 0 || utilizationRate >= 95) {
+            return "CRITICAL";
+        }
+        if (utilizationRate >= 80) {
+            return "HIGH";
+        }
+        if (utilizationRate >= 50) {
+            return "MODERATE";
+        }
         return "LOW";
     }
 
-    private int riskPoints(String level) {
-        return switch (level) {
-            case "CRITICAL" -> 30;
-            case "HIGH" -> 22;
-            case "MODERATE" -> 15;
-            default -> 8;
+    private int deriveOverallReadinessScore(String inventoryRiskLevel,
+                                            String reliefRiskLevel,
+                                            String evacuationRiskLevel,
+                                            String budgetRiskLevel) {
+        int score = 100;
+
+        score -= riskPenalty(inventoryRiskLevel);
+        score -= riskPenalty(reliefRiskLevel);
+        score -= riskPenalty(evacuationRiskLevel);
+        score -= riskPenalty(budgetRiskLevel);
+
+        return Math.max(0, Math.min(100, score));
+    }
+
+    private String deriveOverallReadinessRiskLevel(String inventoryRiskLevel,
+                                                   String reliefRiskLevel,
+                                                   String evacuationRiskLevel,
+                                                   String budgetRiskLevel,
+                                                   int score) {
+        if (isCritical(inventoryRiskLevel)
+                || isCritical(evacuationRiskLevel)
+                || isCritical(budgetRiskLevel)) {
+            return "CRITICAL";
+        }
+
+        if (isHigh(inventoryRiskLevel)
+                || isHigh(reliefRiskLevel)
+                || isHigh(evacuationRiskLevel)
+                || isHigh(budgetRiskLevel)) {
+            return "HIGH";
+        }
+
+        if (score < 60) {
+            return "HIGH";
+        }
+        if (score < 80) {
+            return "MODERATE";
+        }
+        return "LOW";
+    }
+
+    private int riskPenalty(String level) {
+        return switch (normalize(level)) {
+            case "CRITICAL" -> 35;
+            case "HIGH" -> 24;
+            case "MODERATE" -> 12;
+            default -> 5;
         };
     }
 
-    private String deriveOverall(int score) {
-        if (score >= 85) return "CRITICAL";
-        if (score >= 65) return "HIGH";
-        if (score >= 40) return "MODERATE";
-        return "LOW";
+    private boolean isCritical(String level) {
+        return "CRITICAL".equals(normalize(level));
+    }
+
+    private boolean isHigh(String level) {
+        return "HIGH".equals(normalize(level));
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
     }
 }
