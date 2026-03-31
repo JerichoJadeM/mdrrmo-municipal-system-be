@@ -115,6 +115,9 @@ public class InventoryService {
         inventory.setReorderLevel(request.reorderLevel() != null ? request.reorderLevel() : 0);
         inventory.setCriticalItem(request.criticalItem() != null ? request.criticalItem() : Boolean.FALSE);
 
+        inventory.setEstimatedUnitCost(request.estimatedUnitCost());
+        inventory.setCostLastUpdated(request.estimatedUnitCost() != null ? LocalDate.now() : null);
+
         if (createMode) {
             inventory.setAvailableQuantity(request.totalQuantity());
         }
