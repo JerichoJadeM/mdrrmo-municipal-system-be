@@ -1,7 +1,5 @@
 package com.isufst.mdrrmosystem.service;
 
-
-import org.springframework.stereotype.Service;
 import com.isufst.mdrrmosystem.entity.EvacuationActivation;
 import com.isufst.mdrrmosystem.entity.Inventory;
 import com.isufst.mdrrmosystem.entity.OperationHistory;
@@ -23,6 +21,7 @@ import com.isufst.mdrrmosystem.response.PriorityActionResponse;
 import com.isufst.mdrrmosystem.response.ReadinessNoteResponse;
 import com.isufst.mdrrmosystem.response.ResourcesReadinessSummaryResponse;
 import com.isufst.mdrrmosystem.response.WarningHistoryResponse;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -30,13 +29,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 @Service
 public class AlertsWarningsService {
-
-    private static final Set<String> RELIEF_CATEGORIES =
-            Set.of("FOOD", "RELIEF", "WATER", "HYGIENE", "MEDICAL");
 
     private final WeatherForecastService weatherForecastService;
     private final ResourcesReadinessService resourcesReadinessService;
@@ -118,10 +113,12 @@ public class AlertsWarningsService {
                 availableResponders,
                 activeIncidents,
                 activeCalamities,
-                activeAlerts
+                activeAlerts,
+                readinessDomains
         );
 
-        String overallReadinessLabel = mapOverallReadiness(resources.overallReadinessRiskLevel());
+        String overallReadinessLabel = deriveOverallReadiness(readinessDomains);
+
         int criticalGapsCount = (int) activeAlerts.stream()
                 .filter(alert -> isAnyStatus(alert.severity(), "HIGH", "CRITICAL"))
                 .count();
@@ -161,7 +158,7 @@ public class AlertsWarningsService {
         rows.add(buildWeatherDomain(weather));
         rows.add(buildPersonnelDomain(availableResponders, activeIncidents, activeCalamities));
         rows.add(buildResourceDomain(resources, inventory));
-        rows.add(buildEvacuationDomain(resources, openCenters));
+        rows.add(buildEvacuationDomain(resources, openCenters, activeIncidents, activeCalamities));
         rows.add(buildBudgetDomain(resources, budget));
 
         return rows;
@@ -169,16 +166,15 @@ public class AlertsWarningsService {
 
     private AlertsReadinessDomainResponse buildWeatherDomain(MunicipalWeatherForecastResponse weather) {
         String weatherRisk = weather.summary() != null ? weather.summary().overallRiskLevel() : "MEDIUM";
-        String readinessStatus = mapRiskToReadiness(weatherRisk);
+        String readinessStatus = mapWeatherRiskToReadiness(weatherRisk);
 
         int highRiskBarangays = weather.summary() != null ? weather.summary().highRiskBarangays() : 0;
-        int mediumRiskBarangays = weather.summary() != null ? weather.summary().mediumRiskBarangays() : 0;
         int totalBarangays = weather.summary() != null ? weather.summary().totalBarangays() : 0;
 
         int score = switch (normalize(weatherRisk)) {
             case "LOW" -> 88;
-            case "MEDIUM" -> 64;
-            case "HIGH" -> 42;
+            case "MEDIUM", "MODERATE" -> 68;
+            case "HIGH" -> 45;
             case "CRITICAL", "SEVERE" -> 25;
             default -> 60;
         };
@@ -209,34 +205,31 @@ public class AlertsWarningsService {
                                                                long activeIncidents,
                                                                long activeCalamities) {
         int available = availableResponders.size();
+        int projectedNeed = estimateResponderNeed(activeIncidents, activeCalamities);
+
         String status;
         int score;
+        String note;
 
-        if (available >= 8) {
+        if (available <= 0 || available < projectedNeed) {
+            status = "NOT READY";
+            score = 20;
+            note = "Available responders are below projected operational need.";
+        } else if (available < projectedNeed + 3) {
+            status = "LIMITED";
+            score = 55;
+            note = "Responder coverage is available but reserve depth is thin.";
+        } else {
             status = "READY";
             score = 85;
-        } else if (available >= 4) {
-            status = "LIMITED";
-            score = 62;
-        } else {
-            status = "CRITICAL";
-            score = 30;
-        }
-
-        String note;
-        if (available < 4) {
-            note = "Responder reserve is critically low for simultaneous field operations.";
-        } else if (activeIncidents + activeCalamities >= 3) {
-            note = "Current operations are active. Maintain reserve personnel monitoring.";
-        } else {
-            note = "Current responder availability supports routine response readiness.";
+            note = "Responder availability is adequate for current operational demand.";
         }
 
         List<AlertsMetricResponse> metrics = List.of(
                 new AlertsMetricResponse("Available Responders", String.valueOf(available)),
+                new AlertsMetricResponse("Projected Need", String.valueOf(projectedNeed)),
                 new AlertsMetricResponse("Active Incidents", String.valueOf(activeIncidents)),
-                new AlertsMetricResponse("Active Calamities", String.valueOf(activeCalamities)),
-                new AlertsMetricResponse("Responder Posture", status)
+                new AlertsMetricResponse("Active Calamities", String.valueOf(activeCalamities))
         );
 
         return new AlertsReadinessDomainResponse(
@@ -252,62 +245,118 @@ public class AlertsWarningsService {
 
     private AlertsReadinessDomainResponse buildResourceDomain(ResourcesReadinessSummaryResponse resources,
                                                               List<Inventory> inventory) {
-        long criticalItemsAtRisk = inventory.stream()
+        List<Inventory> items = inventory == null ? List.of() : inventory;
+
+        int totalItems = items.size();
+
+        long availableItems = items.stream()
+                .filter(i -> i.getAvailableQuantity() > 0)
+                .count();
+
+        long criticalAvailable = items.stream()
                 .filter(i -> Boolean.TRUE.equals(i.getCriticalItem()))
+                .filter(i -> i.getAvailableQuantity() > 0)
+                .count();
+
+        long distinctCategories = items.stream()
+                .map(i -> normalize(i.getCategory()))
+                .filter(s -> !s.isBlank())
+                .distinct()
+                .count();
+
+        long lowOrOut = items.stream()
                 .filter(this::isLowOrOutOfStock)
                 .count();
 
-        List<AlertsMetricResponse> metrics = List.of(
-                new AlertsMetricResponse("Inventory Risk", safe(resources.inventoryRiskLevel())),
-                new AlertsMetricResponse("Low Stock Items", String.valueOf(resources.inventoryLowStockCount())),
-                new AlertsMetricResponse("Out of Stock", String.valueOf(resources.inventoryOutOfStockCount())),
-                new AlertsMetricResponse("Critical Items At Risk", String.valueOf(criticalItemsAtRisk))
-        );
+        String status;
+        int score;
+        String note;
 
-        String note = resources.inventoryOutOfStockCount() > 0
-                ? "One or more inventory items are out of stock and may affect immediate response."
-                : "Inventory remains operational, but low stock items should be monitored.";
+        if (items.isEmpty() || availableItems == 0) {
+            status = "NOT READY";
+            score = 0;
+            note = "No usable inventory is available for emergency response.";
+        } else if (distinctCategories < 4 || criticalAvailable < 3 || availableItems < 5) {
+            status = "NOT READY";
+            score = 20;
+            note = "Inventory exists but is too limited in quantity or category coverage for emergency operations.";
+        } else if (lowOrOut >= Math.max(2, totalItems / 3)) {
+            status = "LIMITED";
+            score = 50;
+            note = "Inventory is available but several items are already low or at risk.";
+        } else {
+            status = "READY";
+            score = 85;
+            note = "Inventory coverage is currently adequate for routine operational readiness.";
+        }
+
+        List<AlertsMetricResponse> metrics = List.of(
+                new AlertsMetricResponse("Inventory Records", String.valueOf(totalItems)),
+                new AlertsMetricResponse("Usable Items", String.valueOf(availableItems)),
+                new AlertsMetricResponse("Category Coverage", String.valueOf(distinctCategories)),
+                new AlertsMetricResponse("Critical Items Ready", String.valueOf(criticalAvailable))
+        );
 
         return new AlertsReadinessDomainResponse(
                 "RESOURCE",
                 "Equipment & Supply Readiness",
                 "Inventory condition, rescue support items, and emergency response stock availability.",
-                mapRiskToReadiness(resources.inventoryRiskLevel()),
-                domainScoreFromRisk(resources.inventoryRiskLevel()),
+                status,
+                score,
                 note,
                 metrics
         );
     }
 
     private AlertsReadinessDomainResponse buildEvacuationDomain(ResourcesReadinessSummaryResponse resources,
-                                                                List<EvacuationActivation> openCenters) {
-        int availableSlots = openCenters.stream()
+                                                                List<EvacuationActivation> openCenters,
+                                                                long activeIncidents,
+                                                                long activeCalamities) {
+        List<EvacuationActivation> centers = openCenters == null ? List.of() : openCenters;
+
+        int openCount = centers.size();
+        int availableSlots = centers.stream()
                 .filter(a -> a.getCenter() != null)
                 .mapToInt(a -> Math.max(a.getCenter().getCapacity() - a.getCurrentEvacuees(), 0))
                 .sum();
 
-        List<AlertsMetricResponse> metrics = List.of(
-                new AlertsMetricResponse("Evacuation Risk", safe(resources.evacuationRiskLevel())),
-                new AlertsMetricResponse("Open Centers", String.valueOf(resources.activeCentersCount())),
-                new AlertsMetricResponse("Near Full Centers", String.valueOf(resources.nearFullCentersCount())),
-                new AlertsMetricResponse("Available Slots", String.valueOf(availableSlots))
-        );
+        int projectedDemand = estimateProjectedEvacuationDemand(activeIncidents, activeCalamities);
 
+        String status;
+        int score;
         String note;
-        if (resources.fullCentersCount() > 0) {
-            note = "One or more open evacuation centers are already full.";
-        } else if (resources.nearFullCentersCount() > 0) {
-            note = "Open center capacity is tightening and may require alternate activation.";
+
+        if (openCount == 0 || availableSlots <= 0) {
+            status = "NOT READY";
+            score = 0;
+            note = "No evacuation center capacity is currently available.";
+        } else if (availableSlots < projectedDemand) {
+            status = "NOT READY";
+            score = 25;
+            note = "Current evacuation capacity is below projected operational demand.";
+        } else if (resources.nearFullCentersCount() > 0 || availableSlots < Math.ceil(projectedDemand * 1.5)) {
+            status = "LIMITED";
+            score = 55;
+            note = "Evacuation capacity is available but may tighten quickly if conditions escalate.";
         } else {
-            note = "Open center capacity remains manageable under current evacuation load.";
+            status = "READY";
+            score = 85;
+            note = "Evacuation center capacity is currently adequate for projected displacement needs.";
         }
+
+        List<AlertsMetricResponse> metrics = List.of(
+                new AlertsMetricResponse("Open Centers", String.valueOf(openCount)),
+                new AlertsMetricResponse("Available Slots", String.valueOf(availableSlots)),
+                new AlertsMetricResponse("Near Full Centers", String.valueOf(resources.nearFullCentersCount())),
+                new AlertsMetricResponse("Projected Demand", String.valueOf(projectedDemand))
+        );
 
         return new AlertsReadinessDomainResponse(
                 "EVACUATION",
                 "Evacuation Readiness",
                 "Current center capacity, occupancy pressure, and displacement support readiness.",
-                mapRiskToReadiness(resources.evacuationRiskLevel()),
-                domainScoreFromRisk(resources.evacuationRiskLevel()),
+                status,
+                score,
                 note,
                 metrics
         );
@@ -315,28 +364,40 @@ public class AlertsWarningsService {
 
     private AlertsReadinessDomainResponse buildBudgetDomain(ResourcesReadinessSummaryResponse resources,
                                                             BudgetCurrentSummaryResponse budget) {
+        double utilization = budget.utilizationRate();
+        double remaining = budget.totalRemaining();
+
+        String status;
+        int score;
+        String note;
+
+        if (remaining <= 0 || utilization >= 95) {
+            status = "NOT READY";
+            score = 10;
+            note = "Available budget is critically insufficient for continued operations.";
+        } else if (utilization >= 80) {
+            status = "LIMITED";
+            score = 50;
+            note = "Budget utilization is high and may constrain prolonged response.";
+        } else {
+            status = "READY";
+            score = 82;
+            note = "Current budget remains usable for operational support.";
+        }
+
         List<AlertsMetricResponse> metrics = List.of(
                 new AlertsMetricResponse("Budget Risk", safe(resources.budgetRiskLevel())),
-                new AlertsMetricResponse("Utilization Rate", String.format(Locale.US, "%.0f%%", budget.utilizationRate())),
-                new AlertsMetricResponse("Remaining Budget", String.format(Locale.US, "₱ %,.2f", budget.totalRemaining())),
+                new AlertsMetricResponse("Utilization Rate", String.format(Locale.US, "%.0f%%", utilization)),
+                new AlertsMetricResponse("Remaining Budget", String.format(Locale.US, "₱ %,.2f", remaining)),
                 new AlertsMetricResponse("Current Year", String.valueOf(budget.year()))
         );
-
-        String note;
-        if (budget.utilizationRate() >= 90) {
-            note = "Budget utilization is critical and may constrain extended response operations.";
-        } else if (budget.utilizationRate() >= 75) {
-            note = "Budget utilization is elevated and should be monitored closely.";
-        } else {
-            note = "Current budget remains usable for ongoing operational support.";
-        }
 
         return new AlertsReadinessDomainResponse(
                 "BUDGET",
                 "Budget Readiness",
                 "Financial flexibility available for current and near-term operations.",
-                mapRiskToReadiness(resources.budgetRiskLevel()),
-                domainScoreFromRisk(resources.budgetRiskLevel()),
+                status,
+                score,
                 note,
                 metrics
         );
@@ -355,7 +416,7 @@ public class AlertsWarningsService {
         addWeatherAlerts(alerts, weather);
         addInventoryAlerts(alerts, inventory, resources);
         addPersonnelAlerts(alerts, availableResponders, activeIncidents, activeCalamities);
-        addEvacuationAlerts(alerts, resources, openCenters);
+        addEvacuationAlerts(alerts, resources, openCenters, activeIncidents, activeCalamities);
         addBudgetAlerts(alerts, budget, resources);
 
         alerts.sort(Comparator
@@ -405,14 +466,41 @@ public class AlertsWarningsService {
     private void addInventoryAlerts(List<ActiveAlertResponse> alerts,
                                     List<Inventory> inventory,
                                     ResourcesReadinessSummaryResponse resources) {
-        long criticalOutOfStock = inventory.stream()
+        List<Inventory> items = inventory == null ? List.of() : inventory;
+
+        if (items.isEmpty()) {
+            alerts.add(new ActiveAlertResponse(
+                    "RESOURCE",
+                    "CRITICAL",
+                    "ACTIVE",
+                    "No inventory is available for emergency response",
+                    "The system has no usable inventory records for emergency supplies or operational equipment.",
+                    "Municipal inventory",
+                    LocalDateTime.now().toString(),
+                    "Resources",
+                    "Record and prepare essential emergency inventory immediately"
+            ));
+            return;
+        }
+
+        long criticalOutOfStock = items.stream()
                 .filter(i -> Boolean.TRUE.equals(i.getCriticalItem()))
                 .filter(i -> i.getAvailableQuantity() <= 0)
                 .count();
 
-        long criticalLowStock = inventory.stream()
+        long criticalLowStock = items.stream()
                 .filter(i -> Boolean.TRUE.equals(i.getCriticalItem()))
                 .filter(this::isLowOrOutOfStock)
+                .count();
+
+        long distinctCategories = items.stream()
+                .map(i -> normalize(i.getCategory()))
+                .filter(s -> !s.isBlank())
+                .distinct()
+                .count();
+
+        long usableItems = items.stream()
+                .filter(i -> i.getAvailableQuantity() > 0)
                 .count();
 
         if (criticalOutOfStock > 0) {
@@ -441,6 +529,20 @@ public class AlertsWarningsService {
             ));
         }
 
+        if (distinctCategories < 4 || usableItems < 5) {
+            alerts.add(new ActiveAlertResponse(
+                    "RESOURCE",
+                    "HIGH",
+                    "ACTIVE",
+                    "Inventory coverage is too limited for emergency operations",
+                    "Available inventory is too narrow in category coverage or usable stock depth for broader incident and calamity response.",
+                    "Municipal inventory",
+                    LocalDateTime.now().toString(),
+                    "Resources",
+                    "Expand essential inventory coverage beyond a few item types"
+            ));
+        }
+
         if (resources.reliefLowStockCount() > 0 || resources.estimatedFamilyCoverage() < 50) {
             alerts.add(new ActiveAlertResponse(
                     "RESOURCE",
@@ -461,26 +563,27 @@ public class AlertsWarningsService {
                                     long activeIncidents,
                                     long activeCalamities) {
         int available = availableResponders.size();
+        int projectedNeed = estimateResponderNeed(activeIncidents, activeCalamities);
 
-        if (available < 4) {
+        if (available <= 0 || available < projectedNeed) {
             alerts.add(new ActiveAlertResponse(
                     "PERSONNEL",
                     "CRITICAL",
                     "ACTIVE",
-                    "Responder availability is critically low",
-                    "Available responder count is below the preferred minimum for concurrent operations.",
+                    "Responder availability is below operational need",
+                    "Available responders are below the projected requirement for current active incidents and calamities.",
                     "MDRRMO personnel pool",
                     LocalDateTime.now().toString(),
                     "Operations",
                     "Review standby roster and reserve assignments"
             ));
-        } else if (available < 8) {
+        } else if (available < projectedNeed + 3) {
             alerts.add(new ActiveAlertResponse(
                     "PERSONNEL",
                     "MEDIUM",
                     "WATCH",
                     "Responder reserve capacity is limited",
-                    "Current available responder count may be insufficient for multiple simultaneous incidents.",
+                    "Current responder coverage is available but reserve depth is thin for escalation.",
                     "MDRRMO personnel pool",
                     LocalDateTime.now().toString(),
                     "Operations",
@@ -505,18 +608,44 @@ public class AlertsWarningsService {
 
     private void addEvacuationAlerts(List<ActiveAlertResponse> alerts,
                                      ResourcesReadinessSummaryResponse resources,
-                                     List<EvacuationActivation> openCenters) {
-        if (resources.fullCentersCount() > 0) {
+                                     List<EvacuationActivation> openCenters,
+                                     long activeIncidents,
+                                     long activeCalamities) {
+        List<EvacuationActivation> centers = openCenters == null ? List.of() : openCenters;
+
+        int availableSlots = centers.stream()
+                .filter(a -> a.getCenter() != null)
+                .mapToInt(a -> Math.max(a.getCenter().getCapacity() - a.getCurrentEvacuees(), 0))
+                .sum();
+
+        int projectedDemand = estimateProjectedEvacuationDemand(activeIncidents, activeCalamities);
+
+        if (centers.isEmpty() || availableSlots <= 0) {
             alerts.add(new ActiveAlertResponse(
                     "EVACUATION",
                     "CRITICAL",
                     "ACTIVE",
-                    "One or more evacuation centers are already full",
-                    "Current center occupancy has reached full capacity for at least one active evacuation site.",
+                    "No evacuation center capacity is available",
+                    "There are no open evacuation centers with usable capacity for emergency displacement support.",
+                    "Evacuation centers",
+                    LocalDateTime.now().toString(),
+                    "Evacuation Centers",
+                    "Activate and prepare evacuation centers immediately"
+            ));
+            return;
+        }
+
+        if (availableSlots < projectedDemand) {
+            alerts.add(new ActiveAlertResponse(
+                    "EVACUATION",
+                    "CRITICAL",
+                    "ACTIVE",
+                    "Evacuation capacity is below projected demand",
+                    "Current evacuation center capacity may be insufficient if conditions worsen or displacement increases.",
                     "Open evacuation centers",
                     LocalDateTime.now().toString(),
                     "Evacuation Centers",
-                    "Prepare alternate center activation"
+                    "Prepare additional evacuation capacity"
             ));
         } else if (resources.nearFullCentersCount() > 0) {
             alerts.add(new ActiveAlertResponse(
@@ -532,7 +661,7 @@ public class AlertsWarningsService {
             ));
         }
 
-        if (!openCenters.isEmpty() && resources.overallOccupancyRate() >= 80) {
+        if (!centers.isEmpty() && resources.overallOccupancyRate() >= 80) {
             alerts.add(new ActiveAlertResponse(
                     "EVACUATION",
                     "MEDIUM",
@@ -550,19 +679,19 @@ public class AlertsWarningsService {
     private void addBudgetAlerts(List<ActiveAlertResponse> alerts,
                                  BudgetCurrentSummaryResponse budget,
                                  ResourcesReadinessSummaryResponse resources) {
-        if (budget.utilizationRate() >= 90) {
+        if (budget.totalRemaining() <= 0 || budget.utilizationRate() >= 95) {
             alerts.add(new ActiveAlertResponse(
                     "BUDGET",
                     "CRITICAL",
                     "ACTIVE",
-                    "Budget utilization is at critical level",
-                    "Current obligations have consumed most of the available annual budget.",
+                    "Budget readiness is critically constrained",
+                    "Current budget availability may not support extended or escalating response operations.",
                     "Current year budget",
                     LocalDateTime.now().toString(),
                     "Budget",
                     "Review response spending priorities immediately"
             ));
-        } else if (budget.utilizationRate() >= 75) {
+        } else if (budget.utilizationRate() >= 80) {
             alerts.add(new ActiveAlertResponse(
                     "BUDGET",
                     "HIGH",
@@ -631,13 +760,14 @@ public class AlertsWarningsService {
                                                             List<User> availableResponders,
                                                             long activeIncidents,
                                                             long activeCalamities,
-                                                            List<ActiveAlertResponse> activeAlerts) {
+                                                            List<ActiveAlertResponse> activeAlerts,
+                                                            List<AlertsReadinessDomainResponse> readinessDomains) {
         List<ReadinessNoteResponse> notes = new ArrayList<>();
 
         notes.add(new ReadinessNoteResponse(
                 "Overall Readiness Observation",
-                "Current overall readiness is " + mapOverallReadiness(resources.overallReadinessRiskLevel()).toLowerCase(Locale.ROOT)
-                        + " based on weather, resources, evacuation, budget, and personnel signals.",
+                "Current overall readiness is " + deriveOverallReadiness(readinessDomains).toLowerCase(Locale.ROOT)
+                        + " based on weather, resources, evacuation, budget, and personnel sufficiency.",
                 "Readiness Summary"
         ));
 
@@ -665,7 +795,7 @@ public class AlertsWarningsService {
                 "Operations"
         ));
 
-        if (budget.utilizationRate() >= 75) {
+        if (budget.utilizationRate() >= 80) {
             notes.add(new ReadinessNoteResponse(
                     "Budget Observation",
                     "Budget utilization is elevated and should be considered in operational planning.",
@@ -684,36 +814,47 @@ public class AlertsWarningsService {
         return notes;
     }
 
+    private String deriveOverallReadiness(List<AlertsReadinessDomainResponse> domains) {
+        boolean hasNotReady = domains.stream()
+                .anyMatch(d -> isAnyStatus(d.status(), "NOT READY"));
+
+        if (hasNotReady) {
+            return "Not Ready";
+        }
+
+        boolean hasLimited = domains.stream()
+                .anyMatch(d -> isAnyStatus(d.status(), "LIMITED"));
+
+        if (hasLimited) {
+            return "Partially Ready";
+        }
+
+        return "Ready";
+    }
+
+    private int estimateResponderNeed(long activeIncidents, long activeCalamities) {
+        int incidentNeed = (int) activeIncidents * 2;
+        int calamityNeed = (int) activeCalamities * 4;
+        return Math.max(4, incidentNeed + calamityNeed);
+    }
+
+    private int estimateProjectedEvacuationDemand(long activeIncidents, long activeCalamities) {
+        int incidentDemand = (int) activeIncidents * 10;
+        int calamityDemand = (int) activeCalamities * 50;
+        return Math.max(20, incidentDemand + calamityDemand);
+    }
+
     private boolean isLowOrOutOfStock(Inventory inventory) {
         int reorderLevel = inventory.getReorderLevel() != null ? inventory.getReorderLevel() : 0;
         return inventory.getAvailableQuantity() <= reorderLevel;
     }
 
-    private String mapRiskToReadiness(String riskLevel) {
+    private String mapWeatherRiskToReadiness(String riskLevel) {
         return switch (normalize(riskLevel)) {
             case "LOW" -> "READY";
-            case "MODERATE", "MEDIUM", "HIGH" -> "LIMITED";
-            case "CRITICAL", "SEVERE" -> "CRITICAL";
+            case "MODERATE", "MEDIUM" -> "LIMITED";
+            case "HIGH", "CRITICAL", "SEVERE" -> "NOT READY";
             default -> "LIMITED";
-        };
-    }
-
-    private String mapOverallReadiness(String riskLevel) {
-        return switch (normalize(riskLevel)) {
-            case "LOW" -> "Ready";
-            case "MODERATE", "MEDIUM", "HIGH" -> "Partially Ready";
-            case "CRITICAL", "SEVERE" -> "Not Ready";
-            default -> "Partially Ready";
-        };
-    }
-
-    private int domainScoreFromRisk(String riskLevel) {
-        return switch (normalize(riskLevel)) {
-            case "LOW" -> 88;
-            case "MODERATE", "MEDIUM" -> 66;
-            case "HIGH" -> 48;
-            case "CRITICAL", "SEVERE" -> 25;
-            default -> 60;
         };
     }
 
