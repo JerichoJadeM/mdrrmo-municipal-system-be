@@ -8,6 +8,6 @@ public record BudgetCurrentSummaryResponse(
         double totalObligations,
         double totalRemaining,
         double allocationRate,
-        double utilizationRate,
+        Double utilizationRate,
         String description
 ) { }

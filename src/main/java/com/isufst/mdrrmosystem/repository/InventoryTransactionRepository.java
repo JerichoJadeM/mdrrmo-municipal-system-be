@@ -1,6 +1,7 @@
 package com.isufst.mdrrmosystem.repository;
 
 import com.isufst.mdrrmosystem.entity.InventoryTransaction;
+import com.isufst.mdrrmosystem.response.TopConsumedResourceResponse;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -38,4 +39,24 @@ public interface InventoryTransactionRepository extends JpaRepository<InventoryT
                                                 @Param("recordId") Long recordId,
                                                 @Param("fromDate") LocalDateTime fromDate,
                                                 @Param("toDate") LocalDateTime toDate);
+
+
+    @Query("""
+        SELECT new com.isufst.mdrrmosystem.response.TopConsumedResourceResponse(
+            i.name,
+            COALESCE(SUM(t.quantity), 0)
+        )
+        FROM InventoryTransaction t
+        JOIN t.inventory i
+        WHERE UPPER(t.actionType) = 'CONSUMED'
+          AND (:fromDate IS NULL OR t.timeStamp >= :fromDate)
+          AND (:toDate IS NULL OR t.timeStamp < :toDate)
+        GROUP BY i.id, i.name
+        ORDER BY COALESCE(SUM(t.quantity), 0) DESC, i.name ASC
+    """)
+    List<TopConsumedResourceResponse> findTopConsumedResources(
+            @Param("fromDate") LocalDateTime fromDate,
+            @Param("toDate") LocalDateTime toDate,
+            org.springframework.data.domain.Pageable pageable
+    );
 }

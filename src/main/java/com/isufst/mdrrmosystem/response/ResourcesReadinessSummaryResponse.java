@@ -19,6 +19,7 @@ public record ResourcesReadinessSummaryResponse(
         double forecastGap,
         String overallReadinessRiskLevel,
         int overallReadinessScore,
-        List<String> warnings
+        List<String> warnings,
+        List<TopConsumedResourceResponse> topConsumedResources
 ) {
 }

@@ -4,12 +4,12 @@ import com.isufst.mdrrmosystem.entity.EvacuationActivation;
 import com.isufst.mdrrmosystem.entity.Inventory;
 import com.isufst.mdrrmosystem.repository.EvacuationActivationRepository;
 import com.isufst.mdrrmosystem.repository.InventoryRepository;
-import com.isufst.mdrrmosystem.response.BudgetCurrentSummaryResponse;
-import com.isufst.mdrrmosystem.response.ResourcesReadinessSummaryResponse;
-import com.isufst.mdrrmosystem.response.ResourcesSummaryResponse;
+import com.isufst.mdrrmosystem.repository.InventoryTransactionRepository;
+import com.isufst.mdrrmosystem.response.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -22,13 +22,19 @@ public class ResourcesReadinessService {
     private final InventoryRepository inventoryRepository;
     private final EvacuationActivationRepository evacuationActivationRepository;
     private final BudgetService budgetService;
+    private final EvacuationCenterService evacuationCenterService;
+    private final InventoryTransactionRepository inventoryTransactionRepository;
 
     public ResourcesReadinessService(InventoryRepository inventoryRepository,
                                      EvacuationActivationRepository evacuationActivationRepository,
-                                     BudgetService budgetService) {
+                                     BudgetService budgetService,
+                                     EvacuationCenterService evacuationCenterService,
+                                     InventoryTransactionRepository inventoryTransactionRepository) {
         this.inventoryRepository = inventoryRepository;
         this.evacuationActivationRepository = evacuationActivationRepository;
         this.budgetService = budgetService;
+        this.evacuationCenterService = evacuationCenterService;
+        this.inventoryTransactionRepository = inventoryTransactionRepository;
     }
 
     @Transactional(readOnly = true)
@@ -73,79 +79,123 @@ public class ResourcesReadinessService {
 
     @Transactional(readOnly = true)
     public ResourcesReadinessSummaryResponse getReadinessSummary() {
-        List<Inventory> inventory = inventoryRepository.findAll();
+        List<Inventory> inventories = inventoryRepository.findAll();
 
-        long inventoryLowStockCount = inventory.stream().filter(this::isLowStock).count();
-        long inventoryOutOfStockCount = inventory.stream().filter(this::isOutOfStock).count();
+        List<Inventory> reliefItems = inventories.stream()
+                .filter(item -> isReliefCategory(item.getCategory()))
+                .toList();
 
-        List<Inventory> reliefInventory = inventory.stream().filter(this::isReliefItem).toList();
-        long reliefLowStockCount = reliefInventory.stream().filter(this::isLowStock).count();
-        long estimatedFamilyCoverage = reliefInventory.stream()
-                .filter(i -> "FOOD".equalsIgnoreCase(i.getCategory()) || "RELIEF".equalsIgnoreCase(i.getCategory()))
-                .mapToLong(Inventory::getAvailableQuantity)
+        long inventoryLowStockCount = inventories.stream()
+                .filter(this::isLowStock)
+                .count();
+
+        long inventoryOutOfStockCount = inventories.stream()
+                .filter(item -> safeInt(item.getAvailableQuantity()) <= 0)
+                .count();
+
+        long reliefLowStockCount = reliefItems.stream()
+                .filter(this::isLowStock)
+                .count();
+
+        long totalReliefAvailable = reliefItems.stream()
+                .mapToLong(item -> Math.max(safeInt(item.getAvailableQuantity()), 0))
                 .sum();
 
-        List<EvacuationActivation> openCenters = evacuationActivationRepository.findByStatus("OPEN");
-        long activeCentersCount = openCenters.size();
-        long nearFullCentersCount = 0;
-        long fullCentersCount = 0;
-        int totalCapacity = 0;
-        int totalEvacuees = 0;
+        long estimatedFamilyCoverage = Math.max(totalReliefAvailable / 10, 0);
 
-        for (EvacuationActivation activation : openCenters) {
-            if (activation.getCenter() == null) continue;
+        List<EvacuationCenterResourceResponse> centers =
+                evacuationCenterService.getResourcesView(null, null, null);
 
-            int capacity = Math.max(activation.getCenter().getCapacity(), 0);
-            int evacuees = activation.getCurrentEvacuees();
-            int occupancy = capacity > 0
-                    ? Math.min(100, Math.round((evacuees * 100f) / capacity))
-                    : 0;
+        long activeCentersCount = centers.stream()
+                .filter(center -> {
+                    String status = normalize(center.status());
+                    return "active".equals(status) || "open".equals(status);
+                })
+                .count();
 
-            totalCapacity += capacity;
-            totalEvacuees += evacuees;
+        long nearFullCentersCount = centers.stream()
+                .filter(center -> {
+                    int occupancy = resolveOccupancyRate(center);
+                    return occupancy >= 80 && occupancy < 95;
+                })
+                .count();
 
-            if (occupancy >= 95) {
-                fullCentersCount++;
-            } else if (occupancy >= 80) {
-                nearFullCentersCount++;
-            }
-        }
+        long fullCentersCount = centers.stream()
+                .filter(center -> resolveOccupancyRate(center) >= 95)
+                .count();
+
+        int totalCapacity = centers.stream()
+                .mapToInt(center -> Math.max(resolveCapacity(center), 0))
+                .sum();
+
+        int totalEvacuees = centers.stream()
+                .mapToInt(center -> Math.max(resolveCurrentEvacuees(center), 0))
+                .sum();
 
         int overallOccupancyRate = totalCapacity > 0
-                ? Math.min(100, Math.round((totalEvacuees * 100f) / totalCapacity))
+                ? (int) Math.round((totalEvacuees * 100.0) / totalCapacity)
                 : 0;
 
-        BudgetCurrentSummaryResponse budget = budgetService.getCurrentSummary();
-        int budgetUtilizationRate = (int) Math.round(budget.utilizationRate());
-        double forecastGap = budget.totalAllotment() * 0.10;
+        BudgetCurrentSummaryResponse budgetCurrent = budgetService.getCurrentSummary();
+        int budgetUtilizationRate = budgetCurrent != null && budgetCurrent.utilizationRate() != null
+                ? (int) Math.round(budgetCurrent.utilizationRate())
+                : 0;
 
-        String inventoryRiskLevel = deriveInventoryRisk(
-                inventoryLowStockCount,
-                inventoryOutOfStockCount,
-                inventory.stream()
-                        .filter(i -> Boolean.TRUE.equals(i.getCriticalItem()) && (isLowStock(i) || isOutOfStock(i)))
-                        .count()
+        String inventoryRiskLevel = computeInventoryRiskLevel(inventoryLowStockCount, inventoryOutOfStockCount);
+        String reliefRiskLevel = computeReliefRiskLevel(reliefLowStockCount, (int) estimatedFamilyCoverage);
+        String evacuationRiskLevel = computeEvacuationRiskLevel(overallOccupancyRate, nearFullCentersCount, fullCentersCount);
+        String budgetRiskLevel = computeBudgetRiskLevel(budgetUtilizationRate);
+
+        int overallReadinessScore = computeOverallReadinessScore(
+                inventoryRiskLevel,
+                reliefRiskLevel,
+                evacuationRiskLevel,
+                budgetRiskLevel
         );
 
-        String reliefRiskLevel = deriveReliefRisk(reliefLowStockCount, estimatedFamilyCoverage);
-        String evacuationRiskLevel = deriveEvacuationRisk(fullCentersCount, nearFullCentersCount, activeCentersCount);
-        String budgetRiskLevel = deriveBudgetRisk(budgetUtilizationRate);
+        String overallReadinessRiskLevel = mapScoreToRiskLevel(overallReadinessScore);
 
-        int score = 0;
-        score += riskPoints(inventoryRiskLevel);
-        score += riskPoints(reliefRiskLevel);
-        score += riskPoints(evacuationRiskLevel);
-        score += riskPoints(budgetRiskLevel);
-
-        int overallReadinessScore = Math.min(100, score);
-        String overallReadinessRiskLevel = deriveOverall(overallReadinessScore);
+        double forecastGap = Math.max((double) totalEvacuees - estimatedFamilyCoverage, 0);
 
         List<String> warnings = new ArrayList<>();
-        if (inventoryLowStockCount > 0) warnings.add("Some inventory items are low or out of stock.");
-        if (reliefLowStockCount > 0) warnings.add("Relief-related inventory items need replenishment.");
-        if (nearFullCentersCount > 0) warnings.add("One or more evacuation centers are near full.");
-        if (fullCentersCount > 0) warnings.add("One or more evacuation centers are already full.");
-        if (budgetUtilizationRate >= 75) warnings.add("Budget utilization is high and may affect response readiness.");
+
+        if (inventoryOutOfStockCount > 0) {
+            warnings.add(inventoryOutOfStockCount + " inventory item(s) are out of stock.");
+        }
+
+        if (inventoryLowStockCount > 0) {
+            warnings.add(inventoryLowStockCount + " inventory item(s) are at low stock.");
+        }
+
+        if (reliefLowStockCount > 0) {
+            warnings.add(reliefLowStockCount + " relief item(s) are at low stock.");
+        }
+
+        if (fullCentersCount > 0) {
+            warnings.add(fullCentersCount + " evacuation center(s) are already full.");
+        } else if (nearFullCentersCount > 0) {
+            warnings.add(nearFullCentersCount + " evacuation center(s) are nearing full capacity.");
+        }
+
+        if (budgetUtilizationRate >= 90) {
+            warnings.add("Budget utilization is critical at " + budgetUtilizationRate + "%.");
+        } else if (budgetUtilizationRate >= 75) {
+            warnings.add("Budget utilization is high at " + budgetUtilizationRate + "%.");
+        }
+
+        if (forecastGap > 0) {
+            warnings.add("Estimated relief coverage is short by " + Math.round(forecastGap) + " family-equivalent unit(s) versus current evacuee load.");
+        }
+
+        LocalDateTime fromDate = LocalDateTime.now().minusDays(30);
+        LocalDateTime toDate = LocalDateTime.now().plusSeconds(1);
+
+        List<TopConsumedResourceResponse> topConsumedResources =
+                inventoryTransactionRepository.findTopConsumedResources(
+                        fromDate,
+                        toDate,
+                        org.springframework.data.domain.PageRequest.of(0, 8)
+                );
 
         return new ResourcesReadinessSummaryResponse(
                 inventoryRiskLevel,
@@ -164,8 +214,107 @@ public class ResourcesReadinessService {
                 forecastGap,
                 overallReadinessRiskLevel,
                 overallReadinessScore,
-                warnings
+                warnings,
+                topConsumedResources
         );
+    }
+
+    private boolean isReliefCategory(String category) {
+        String normalized = normalize(category);
+        return normalized.contains("food")
+                || normalized.contains("relief")
+                || normalized.contains("water")
+                || normalized.contains("medicine")
+                || normalized.contains("medical")
+                || normalized.contains("hygiene");
+    }
+
+    private boolean isLowStock(Inventory item) {
+        int available = safeInt(item.getAvailableQuantity());
+        int reorderLevel = item.getReorderLevel() != null ? item.getReorderLevel() : 0;
+        return available > 0 && available <= reorderLevel;
+    }
+
+    private int safeInt(Integer value) {
+        return value != null ? value : 0;
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase();
+    }
+
+    private int resolveOccupancyRate(EvacuationCenterResourceResponse center) {
+        if (center.occupancyRate() != null) {
+            return Math.max(center.occupancyRate(), 0);
+        }
+
+        int capacity = resolveCapacity(center);
+        int evacuees = resolveCurrentEvacuees(center);
+
+        return capacity > 0
+                ? (int) Math.round((evacuees * 100.0) / capacity)
+                : 0;
+    }
+
+    private int resolveCapacity(EvacuationCenterResourceResponse center) {
+        return center.capacity() != null ? center.capacity() : 0;
+    }
+
+    private int resolveCurrentEvacuees(EvacuationCenterResourceResponse center) {
+        return center.currentEvacuees() != null ? center.currentEvacuees() : 0;
+    }
+
+    private String computeInventoryRiskLevel(long lowStockCount, long outOfStockCount) {
+        if (outOfStockCount > 0) return "HIGH";
+        if (lowStockCount >= 5) return "MODERATE";
+        return "LOW";
+    }
+
+    private String computeReliefRiskLevel(long reliefLowStockCount, int estimatedFamilyCoverage) {
+        if (estimatedFamilyCoverage <= 20) return "HIGH";
+        if (reliefLowStockCount >= 3 || estimatedFamilyCoverage <= 50) return "MODERATE";
+        return "LOW";
+    }
+
+    private String computeEvacuationRiskLevel(int overallOccupancyRate, long nearFullCentersCount, long fullCentersCount) {
+        if (fullCentersCount > 0 || overallOccupancyRate >= 95) return "HIGH";
+        if (nearFullCentersCount > 0 || overallOccupancyRate >= 80) return "MODERATE";
+        return "LOW";
+    }
+
+    private String computeBudgetRiskLevel(int budgetUtilizationRate) {
+        if (budgetUtilizationRate >= 90) return "HIGH";
+        if (budgetUtilizationRate >= 70) return "MODERATE";
+        return "LOW";
+    }
+
+    private int riskLevelToScore(String riskLevel) {
+        return switch (riskLevel) {
+            case "LOW" -> 88;
+            case "MODERATE" -> 66;
+            case "HIGH" -> 40;
+            default -> 60;
+        };
+    }
+
+    private int computeOverallReadinessScore(String inventoryRiskLevel,
+                                             String reliefRiskLevel,
+                                             String evacuationRiskLevel,
+                                             String budgetRiskLevel) {
+        double average = (
+                riskLevelToScore(inventoryRiskLevel)
+                        + riskLevelToScore(reliefRiskLevel)
+                        + riskLevelToScore(evacuationRiskLevel)
+                        + riskLevelToScore(budgetRiskLevel)
+        ) / 4.0;
+
+        return (int) Math.round(average);
+    }
+
+    private String mapScoreToRiskLevel(int score) {
+        if (score >= 80) return "LOW";
+        if (score >= 55) return "MODERATE";
+        return "HIGH";
     }
 
     private boolean isReliefItem(Inventory inventory) {
@@ -175,11 +324,6 @@ public class ResourcesReadinessService {
 
     private boolean isOutOfStock(Inventory inventory) {
         return inventory.getAvailableQuantity() <= 0;
-    }
-
-    private boolean isLowStock(Inventory inventory) {
-        int reorderLevel = inventory.getReorderLevel() != null ? inventory.getReorderLevel() : 0;
-        return inventory.getAvailableQuantity() <= reorderLevel;
     }
 
     private String deriveInventoryRisk(long lowCount, long outCount, long criticalLowCount) {
