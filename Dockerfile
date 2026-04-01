@@ -9,4 +9,4 @@ RUN ./mvnw clean package -DskipTests
 
 EXPOSE 10000
 
-CMD ["sh", "-c", "java -Xms128m -Xmx320m -Dserver.port=$PORT -jar target/mdrrmo-system-0.0.1-SNAPSHOT.jar"]
+CMD ["sh", "-c", "java -Xms64m -Xmx256m -Dserver.port=$PORT -jar target/mdrrmo-system-0.0.1-SNAPSHOT.jar"]
