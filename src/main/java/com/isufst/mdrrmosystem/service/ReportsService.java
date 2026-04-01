@@ -16,7 +16,6 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional(readOnly = true)
-@PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
 public class ReportsService {
 
     private final IncidentRepository incidentRepository;
