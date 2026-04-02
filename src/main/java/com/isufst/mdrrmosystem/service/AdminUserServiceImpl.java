@@ -149,6 +149,8 @@ public class AdminUserServiceImpl implements AdminUserService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one authority is required");
         }
 
+        String oldRoles = formatAuthoritiesForAudit((List<? extends GrantedAuthority>) user.getAuthorities());
+
         List<Authority> newAuthorities = request.authorities().stream()
                 .map(role -> role.startsWith("ROLE_") ? role : "ROLE_" + role)
                 .map(String::toUpperCase)
@@ -164,6 +166,8 @@ public class AdminUserServiceImpl implements AdminUserService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "You cannot demote the last remaining admin.");
         }
 
+        String newRoles = formatAuthoritiesForAudit(newAuthorities);
+
         user.getAuthorities().clear();
         user.updateAuthorities(newAuthorities);
 
@@ -173,10 +177,23 @@ public class AdminUserServiceImpl implements AdminUserService {
                 actor,
                 saved,
                 "ROLE_UPDATE",
-                actor.getFullName() + " updated authorities for " + saved.getFullName()
+                actor.getFullName() + " changed role of " + saved.getFullName() +
+                        " from " + oldRoles + " to " + newRoles
         );
 
         return map(saved);
+    }
+
+    private String formatAuthoritiesForAudit(List<? extends GrantedAuthority> authorities) {
+        if (authorities == null || authorities.isEmpty()) {
+            return "NONE";
+        }
+
+        return authorities.stream()
+                .map(GrantedAuthority::getAuthority)
+                .map(role -> role.replace("ROLE_", ""))
+                .sorted()
+                .collect(Collectors.joining(", "));
     }
 
     private User findUser(Long id) {

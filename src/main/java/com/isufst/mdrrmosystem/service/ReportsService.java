@@ -12,6 +12,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -188,19 +190,7 @@ public class ReportsService {
                             toDateTime
                     )
                     .stream()
-                    .map(log -> new AuditTrailResponse(
-                            log.getId(),
-                            "ADMINISTRATION",
-                            "USER",
-                            log.getTargetUser() != null ? log.getTargetUser().getId() : null,
-                            log.getActionType(),
-                            null,
-                            null,
-                            log.getDescription(),
-                            null,
-                            log.getActor() != null ? log.getActor().getFullName() : "--",
-                            log.getCreatedAt()
-                    ))
+                    .map(this::mapAdminAuditLog)
                     .toList();
 
             merged.addAll(adminRows);
@@ -608,5 +598,35 @@ public class ReportsService {
         }
 
         return "AVAILABLE";
+    }
+
+    private AuditTrailResponse mapAdminAuditLog(AdminActionLog log) {
+        String description = log.getDescription() != null ? log.getDescription().trim() : "";
+        String fromStatus = null;
+        String toStatus = null;
+
+        Matcher matcher = Pattern.compile(
+                "from\\s+(.+?)\\s+to\\s+(.+)$",
+                Pattern.CASE_INSENSITIVE
+        ).matcher(description);
+
+        if (matcher.find()) {
+            fromStatus = matcher.group(1).trim();
+            toStatus = matcher.group(2).trim();
+        }
+
+        return new AuditTrailResponse(
+                log.getId(),
+                "ADMINISTRATION",
+                "USER",
+                log.getTargetUser() != null ? log.getTargetUser().getId() : null,
+                log.getActionType(),
+                fromStatus,
+                toStatus,
+                description,
+                null,
+                log.getActor() != null ? log.getActor().getFullName() : "--",
+                log.getCreatedAt()
+        );
     }
 }
