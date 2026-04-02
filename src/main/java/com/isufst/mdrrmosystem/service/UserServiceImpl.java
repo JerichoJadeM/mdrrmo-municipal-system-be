@@ -136,14 +136,14 @@ public class UserServiceImpl implements UserService{
     public List<ResponderResponse> searchAvailableResponders(String search) {
         String keyword = search == null ? "" : search.trim();
 
-        return userRepository
-                .findAvailableResponders(keyword)
+        return userRepository.findAvailableResponders(keyword)
                 .stream()
                 .map(this::mapToResponderResponse)
                 .toList();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<AssignableUserResponse> getAssignableCoordinators() {
         return userRepository.findAssignableCoordinators()
                 .stream()
@@ -203,6 +203,7 @@ public class UserServiceImpl implements UserService{
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<AssignableUserResponse> getAssignableResponders() {
         return userRepository.findAvailableResponders()
                 .stream()

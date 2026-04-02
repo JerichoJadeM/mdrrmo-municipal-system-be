@@ -284,6 +284,8 @@ public class CalamityService {
             coordinator = userRepository.findById(calamityRequest.coordinatorId())
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                             "Coordinator id not found"));
+
+            validateCoordinatorAssignable(coordinator);
         }
 
         String affectedAreaType = calamityRequest.affectedAreaType().trim().toUpperCase();
@@ -300,39 +302,7 @@ public class CalamityService {
         calamity.setCasualties(calamityRequest.casualties());
         calamity.setDescription(calamityRequest.description().trim());
 
-        // Handle affected areas logic
-        if ("BARANGAY".equals(affectedAreaType)) {
-            if (calamityRequest.barangayId() == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Barangay is required for BARANGAY affected area type");
-            }
-            Barangay barangay = barangayRepository.findById(calamityRequest.barangayId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Barangay not found"));
-            validateBatadBarangay(barangay);
-            calamity.setBarangay(barangay);
-
-            replaceAffectedBarangays(calamity, List.of(barangay));
-
-        } else if ("MULTI_BARANGAY".equals(affectedAreaType)) {
-            if (calamityRequest.barangayIds() == null || calamityRequest.barangayIds().isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one barangay is required");
-            }
-            List<Barangay> barangays = new ArrayList<>();
-            for (Long bId : calamityRequest.barangayIds()) {
-                Barangay b = barangayRepository.findById(bId)
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Barangay not found: " + bId));
-                validateBatadBarangay(b);
-                barangays.add(b);
-            }
-            calamity.setBarangay(barangays.get(0));
-            replaceAffectedBarangays(calamity, barangays);
-
-        } else if ("MUNICIPALITY".equals(affectedAreaType)) {
-            calamity.setBarangay(null);
-            replaceAffectedBarangays(calamity, barangayRepository.findActiveBatadBarangays());
-        } else {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid affected area type");
-        }
+        // keep your existing affected area logic below this
     }
 
     // helper method for mapToRequestEntity
@@ -411,5 +381,21 @@ public class CalamityService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Calamity not found: " + calamityId));
 
         return mapToResponse(calamity);
+    }
+
+    private void validateCoordinatorAssignable(User coordinator) {
+        if (coordinator == null) return;
+
+        if (!"ACTIVE".equalsIgnoreCase(coordinator.getAccountStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Assigned coordinator is not active.");
+        }
+
+        if (!Boolean.TRUE.equals(coordinator.getCoordinatorEligible())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Assigned user is not coordinator-eligible.");
+        }
+
+        if ("OFF_DUTY".equalsIgnoreCase(coordinator.getAssignmentStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Assigned coordinator is off duty.");
+        }
     }
 }

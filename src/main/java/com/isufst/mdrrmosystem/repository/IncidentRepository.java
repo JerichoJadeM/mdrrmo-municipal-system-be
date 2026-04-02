@@ -46,12 +46,29 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
                              @Param("toDate") LocalDateTime toDate);
 
     @Query("""
-        SELECT i
-        FROM Incident i
-        WHERE (:fromDate IS NULL OR i.reportedAt >= :fromDate)
-          AND (:toDate IS NULL OR i.reportedAt < :toDate)
-        ORDER BY i.reportedAt DESC
+        select i
+        from Incident i
+        where (:from is null or i.reportedAt >= :from)
+          and (:to is null or i.reportedAt < :to)
     """)
-    List<Incident> findAllWithin(@Param("fromDate") LocalDateTime fromDate,
-                                 @Param("toDate") LocalDateTime toDate);
+    List<Incident> findAllWithin(@Param("from") LocalDateTime from,
+                                 @Param("to") LocalDateTime to);
+
+    @Query("""
+        select count(i)
+        from Incident i
+        where i.assignedResponder.id = :responderId
+          and upper(i.status) in ('ONGOING', 'IN_PROGRESS', 'ON_SITE')
+    """)
+    long countActiveAssignmentsByResponderId(@Param("responderId") Long responderId);
+
+    @Query("""
+        select count(i)
+        from Incident i
+        where i.assignedResponder.id = :responderId
+          and i.id <> :incidentId
+          and upper(i.status) in ('ONGOING', 'IN_PROGRESS', 'ON_SITE')
+    """)
+    long countActiveAssignmentsByResponderIdAndIdNot(@Param("responderId") Long responderId,
+                                                     @Param("incidentId") Long incidentId);
 }

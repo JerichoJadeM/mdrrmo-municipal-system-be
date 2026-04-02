@@ -4,89 +4,63 @@ import com.isufst.mdrrmosystem.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
 
-@Repository
 public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByEmail(String email);
 
-    @Query("SELECT COUNT(u) FROM User u JOIN u.authorities a WHERE a.authority = 'ROLE_ADMIN'")
-    long countAdminUser();
+    Optional<User> findByUsername(String username);
 
     @Query("""
-        SELECT u
-        FROM User u
-        JOIN u.authorities a
-        WHERE a.authority = 'ROLE_USER' 
-          AND (u.assignmentStatus = 'AVAILABLE' OR u.assignmentStatus = '')
-          AND (
-                LOWER(u.firstName) LIKE LOWER(CONCAT('%', :keyword, '%'))
-             OR LOWER(u.lastName) LIKE LOWER(CONCAT('%', :keyword, '%'))
-             OR LOWER(CONCAT(u.firstName, ' ', u.lastName)) LIKE LOWER(CONCAT('%', :keyword, '%'))
-          )
-        ORDER BY u.firstName ASC, u.lastName ASC
-    """)
-    List<User> findAvailableResponders(@Param("keyword") String keyword);
-
-    // find coordinators
-    @Query("""
-        SELECT u
-        FROM User u
-        JOIN u.authorities a
-        WHERE a.authority = 'ROLE_USER'
-        ORDER BY u.firstName ASC, u.lastName ASC
-    """)
-    List<User> findAssignableResponders();
-
-    @Query("""
-        SELECT DISTINCT u
-        FROM User u
-        JOIN u.authorities a
-        WHERE a.authority IN ('ROLE_USER', 'ROLE_ADMIN')
-        ORDER BY u.firstName ASC, u.lastName ASC
-    """)
-    List<User> findAssignableCoordinators();
-
-    @Query("""
-        SELECT DISTINCT u
-        FROM User u
-        JOIN u.authorities a
-        WHERE a.authority = 'ROLE_USER'
-          AND (
-                u.assignmentStatus IS NULL
-                OR TRIM(u.assignmentStatus) = ''
-                OR UPPER(TRIM(u.assignmentStatus)) = 'AVAILABLE'
-          )
-        ORDER BY u.firstName ASC, u.lastName ASC
+        select u
+        from User u
+        where upper(coalesce(u.accountStatus, 'ACTIVE')) = 'ACTIVE'
+          and coalesce(u.responderEligible, false) = true
+          and upper(coalesce(u.assignmentStatus, 'AVAILABLE')) = 'AVAILABLE'
+        order by u.lastName asc, u.firstName asc
     """)
     List<User> findAvailableResponders();
 
     @Query("""
-        SELECT DISTINCT u
-        FROM User u
-        JOIN u.authorities a
-        WHERE a.authority IN ('ROLE_ADMIN', 'ROLE_MANAGER')
+        select u
+        from User u
+        where upper(coalesce(u.accountStatus, 'ACTIVE')) = 'ACTIVE'
+          and coalesce(u.responderEligible, false) = true
+          and upper(coalesce(u.assignmentStatus, 'AVAILABLE')) = 'AVAILABLE'
+          and (
+                :keyword is null
+                or trim(:keyword) = ''
+                or lower(concat(coalesce(u.firstName,''), ' ', coalesce(u.lastName,''))) like lower(concat('%', :keyword, '%'))
+                or lower(coalesce(u.email,'')) like lower(concat('%', :keyword, '%'))
+              )
+        order by u.lastName asc, u.firstName asc
     """)
-    List<User> findAdminsAndManagers();
+    List<User> findAvailableResponders(@Param("keyword") String keyword);
 
     @Query("""
-        SELECT DISTINCT u
-        FROM User u
-        LEFT JOIN FETCH u.authorities
+        select u
+        from User u
+        where upper(coalesce(u.accountStatus, 'ACTIVE')) = 'ACTIVE'
+          and coalesce(u.coordinatorEligible, false) = true
+          and upper(coalesce(u.assignmentStatus, 'AVAILABLE')) <> 'OFF_DUTY'
+        order by u.lastName asc, u.firstName asc
     """)
-    List<User> findAllWithAuthorities();
+    List<User> findAssignableCoordinators();
 
     @Query("""
-        SELECT COUNT(DISTINCT u)
-        FROM User u
-        JOIN u.authorities a
-        WHERE a.authority = :authority
+        select count(u)
+        from User u join u.authorities a
+        where upper(a.authority) = upper(:authority)
     """)
     long countUsersByAuthority(@Param("authority") String authority);
 
-    Optional<User> findByUsername(String username);
+    @Query("""
+        select count(u)
+        from User u join u.authorities a
+        where upper(a.authority) = 'ROLE_ADMIN'
+    """)
+    long countAdminUser();
 }

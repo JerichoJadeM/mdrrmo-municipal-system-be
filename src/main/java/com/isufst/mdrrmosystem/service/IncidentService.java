@@ -68,6 +68,7 @@ public class IncidentService {
         if (incidentRequest.assignedResponderId() != null) {
             assignedResponder = userRepository.findById(incidentRequest.assignedResponderId())
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Assigned responder id not found"));
+            validateResponderAssignable(assignedResponder);
         }
 
         Incident incident = new Incident();
@@ -83,6 +84,8 @@ public class IncidentService {
         Incident savedIncident = incidentRepository.save(incident);
 
         if (assignedResponder != null) {
+            markResponderBusy(assignedResponder);
+
             ResponseAction action = new ResponseAction();
             action.setActionType("ASSIGN");
             action.setDescription("Responder "
@@ -159,6 +162,8 @@ public class IncidentService {
                 buildIncidentWarnings(incident)
         );
 
+        User responderToRelease = incident.getAssignedResponder();
+
         String oldStatus = incident.getStatus();
         incident.setStatus("RESOLVED");
         Incident savedIncident = incidentRepository.save(incident);
@@ -169,8 +174,8 @@ public class IncidentService {
         action.setActionTime(LocalDateTime.now());
         action.setIncident(incident);
 
-        if (incident.getAssignedResponder() != null) {
-            action.setResponder(incident.getAssignedResponder());
+        if (responderToRelease != null) {
+            action.setResponder(responderToRelease);
         }
 
         responseActionRepository.save(action);
@@ -186,6 +191,8 @@ public class IncidentService {
                 null
         );
 
+        releaseResponderIfNoOtherActiveIncidents(responderToRelease, incident.getId());
+
         return mapToResponse(savedIncident);
     }
 
@@ -194,6 +201,8 @@ public class IncidentService {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
 
+        User previousResponder = incident.getAssignedResponder();
+
         User responder = userRepository.findById(request.responderId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Responder not found"));
 
@@ -201,10 +210,21 @@ public class IncidentService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Resolved incident cannot be dispatched");
         }
 
+        if (!isSameResponder(previousResponder, responder)) {
+            validateResponderAssignable(responder);
+        }
+
         incident.setAssignedResponder(responder);
         String oldStatus = incident.getStatus();
         incident.setStatus("IN_PROGRESS");
         Incident savedIncident = incidentRepository.save(incident);
+
+        if (!isSameResponder(previousResponder, responder)) {
+            markResponderBusy(responder);
+            releaseResponderIfNoOtherActiveIncidents(previousResponder, incident.getId());
+        } else if (responder != null) {
+            markResponderBusy(responder);
+        }
 
         ResponseAction action = new ResponseAction();
         action.setActionType("DISPATCH");
@@ -212,7 +232,6 @@ public class IncidentService {
         action.setActionTime(LocalDateTime.now());
         action.setIncident(incident);
         action.setResponder(responder);
-
         responseActionRepository.save(action);
 
         operationHistoryService.log(
@@ -327,7 +346,8 @@ public class IncidentService {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
 
-        Long oldResponderId = incident.getAssignedResponder() != null ? incident.getAssignedResponder().getId() : null;
+        User oldResponder = incident.getAssignedResponder();
+        Long oldResponderId = oldResponder != null ? oldResponder.getId() : null;
         String oldSeverity = incident.getSeverity();
 
         Barangay barangay = null;
@@ -341,6 +361,10 @@ public class IncidentService {
         if (incidentRequest.assignedResponderId() != null) {
             assignedResponder = userRepository.findById(incidentRequest.assignedResponderId())
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Assigned responder not found"));
+
+            if (oldResponderId == null || !oldResponderId.equals(assignedResponder.getId())) {
+                validateResponderAssignable(assignedResponder);
+            }
         }
 
         incident.setType(incidentRequest.type().trim());
@@ -358,8 +382,15 @@ public class IncidentService {
         Incident updated = incidentRepository.save(incident);
 
         Long newResponderId = updated.getAssignedResponder() != null ? updated.getAssignedResponder().getId() : null;
+
         if (newResponderId != null && !newResponderId.equals(oldResponderId)) {
+            markResponderBusy(updated.getAssignedResponder());
+            releaseResponderIfNoOtherActiveIncidents(oldResponder, incident.getId());
             notifyResponderIfAssigned(updated, "You were assigned as responder for incident " + updated.getType());
+        }
+
+        if (newResponderId == null && oldResponderId != null) {
+            releaseResponderIfNoOtherActiveIncidents(oldResponder, incident.getId());
         }
 
         if (isSeverityEscalatedToHighOrCritical(oldSeverity, updated.getSeverity())) {
@@ -375,6 +406,8 @@ public class IncidentService {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
 
+        User responderToRelease = incident.getAssignedResponder();
+
         reliefDistributionRepository.deleteByIncidentId(incidentId);
         reliefDistributionRepository.flush();
 
@@ -388,6 +421,8 @@ public class IncidentService {
 
         incidentRepository.delete(incident);
         incidentRepository.flush();
+
+        releaseResponderIfNoOtherActiveIncidents(responderToRelease, incidentId);
     }
 
     private void notifyResponderIfAssigned(Incident incident, String message) {
@@ -443,5 +478,59 @@ public class IncidentService {
             );
         }
         return List.of();
+    }
+
+    private void validateResponderAssignable(User responder) {
+        if (responder == null) return;
+
+        if (!"ACTIVE".equalsIgnoreCase(responder.getAccountStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Assigned responder is not active.");
+        }
+
+        if (!Boolean.TRUE.equals(responder.getResponderEligible())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Assigned user is not responder-eligible.");
+        }
+
+        if (!"AVAILABLE".equalsIgnoreCase(responder.getAssignmentStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Assigned responder is not currently available.");
+        }
+    }
+
+    private void markResponderBusy(User responder) {
+        if (responder == null) return;
+
+        responder.setAssignmentStatus("BUSY");
+        userRepository.save(responder);
+    }
+
+    private void releaseResponderIfNoOtherActiveIncidents(User responder, Long currentIncidentId) {
+        if (responder == null || responder.getId() == null) return;
+
+        long otherActiveAssignments = currentIncidentId == null
+                ? incidentRepository.countActiveAssignmentsByResponderId(responder.getId())
+                : incidentRepository.countActiveAssignmentsByResponderIdAndIdNot(responder.getId(), currentIncidentId);
+
+        if (otherActiveAssignments <= 0) {
+            responder.setAssignmentStatus("AVAILABLE");
+            userRepository.save(responder);
+        }
+    }
+
+    private boolean isSameResponder(User left, User right) {
+        if (left == null && right == null) return true;
+        if (left == null || right == null) return false;
+        return left.getId() != null && left.getId().equals(right.getId());
+    }
+
+    private void logResponseAction(Incident incident, User responder, String actionType, String description) {
+        if (incident == null || responder == null) return;
+
+        ResponseAction action = new ResponseAction();
+        action.setActionType(actionType);
+        action.setDescription(description);
+        action.setActionTime(LocalDateTime.now());
+        action.setIncident(incident);
+        action.setResponder(responder);
+        responseActionRepository.save(action);
     }
 }
