@@ -1,22 +1,21 @@
 package com.isufst.mdrrmosystem.service;
 
-import com.isufst.mdrrmosystem.entity.*;
-import com.isufst.mdrrmosystem.repository.*;
+import com.isufst.mdrrmosystem.entity.Inventory;
+import com.isufst.mdrrmosystem.entity.User;
 import com.isufst.mdrrmosystem.request.ApprovalRequestCreateRequest;
+import com.isufst.mdrrmosystem.request.InventoryCreateProcurementRequest;
 import com.isufst.mdrrmosystem.request.InventoryProcurementRequest;
 import com.isufst.mdrrmosystem.request.InventoryRequest;
 import com.isufst.mdrrmosystem.response.ActionSubmissionResponse;
 import com.isufst.mdrrmosystem.response.ApprovalRequestResponse;
 import com.isufst.mdrrmosystem.response.InventoryResponse;
+import com.isufst.mdrrmosystem.repository.*;
 import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -41,9 +40,8 @@ public class InventoryService {
                             ExpenseRepository expenseRepository,
                             InventoryTransactionRepository inventoryTransactionRepository,
                             NotificationService notificationService,
-                            ApprovalRequestService  approvalRequestService,
-                            InventoryProcurementExecutorService inventoryProcurementExecutorService
-    ) {
+                            ApprovalRequestService approvalRequestService,
+                            InventoryProcurementExecutorService inventoryProcurementExecutorService) {
         this.inventoryRepository = inventoryRepository;
         this.budgetCategoryRepository = budgetCategoryRepository;
         this.incidentRepository = incidentRepository;
@@ -106,47 +104,89 @@ public class InventoryService {
         return mapToResponse(inventory);
     }
 
-    private void mapRequestToEntity(Inventory inventory, InventoryRequest request, boolean createMode) {
-        inventory.setName(request.name());
-        inventory.setCategory(request.category());
-        inventory.setTotalQuantity(request.totalQuantity());
-        inventory.setUnit(request.unit());
-        inventory.setLocation(request.location());
-        inventory.setReorderLevel(request.reorderLevel() != null ? request.reorderLevel() : 0);
-        inventory.setCriticalItem(request.criticalItem() != null ? request.criticalItem() : Boolean.FALSE);
-
-        if (createMode) {
-            inventory.setAvailableQuantity(request.totalQuantity());
+    @Transactional
+    public ActionSubmissionResponse procureNewStock(InventoryCreateProcurementRequest request) {
+        if (request.incidentId() != null && request.calamityId() != null) {
+            throw new RuntimeException("Procurement can only be linked to one operation");
         }
-    }
 
-    private InventoryResponse mapToResponse(Inventory inventory) {
-        return new InventoryResponse(
-                inventory.getId(),
-                inventory.getName(),
-                inventory.getCategory(),
-                inventory.getTotalQuantity(),
-                inventory.getAvailableQuantity(),
-                inventory.getUnit(),
-                inventory.getLocation(),
-                inventory.getReorderLevel(),
-                inventory.getCriticalItem() != null ? inventory.getCriticalItem() : Boolean.FALSE,
-                deriveStockStatus(inventory),
-                inventory.getEstimatedUnitCost()
+        if (request.name() == null || request.name().isBlank()) {
+            throw new RuntimeException("Item name is required");
+        }
+
+        if (request.category() == null || request.category().isBlank()) {
+            throw new RuntimeException("Category is required");
+        }
+
+        if (request.unit() == null || request.unit().isBlank()) {
+            throw new RuntimeException("Unit is required");
+        }
+
+        if (request.location() == null || request.location().isBlank()) {
+            throw new RuntimeException("Location is required");
+        }
+
+        if (request.categoryId() == null) {
+            throw new RuntimeException("Budget category is required");
+        }
+
+        if (request.quantityAdded() == null || request.quantityAdded() <= 0) {
+            throw new RuntimeException("Initial quantity procured must be greater than 0");
+        }
+
+        if (request.totalCost() == null || request.totalCost() <= 0) {
+            throw new RuntimeException("Total cost must be greater than 0");
+        }
+
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
+        boolean isElevated = actor.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(role -> "ROLE_ADMIN".equals(role) || "ROLE_MANAGER".equals(role));
+
+        if (!isElevated) {
+            ApprovalRequestResponse created = approvalRequestService.createRequest(
+                    new ApprovalRequestCreateRequest(
+                            "NEW_INVENTORY_PROCUREMENT_REQUEST",
+                            "New inventory procurement request for " + request.name(),
+                            "Request to create and procure " + request.quantityAdded() + " " + request.unit() + " of " + request.name(),
+                            "INVENTORY",
+                            0L,
+                            buildNewInventoryProcurementPayloadJson(request)
+                    )
+            );
+
+            notificationService.notifyAdminsAndManagers(
+                    "REQUEST",
+                    "New Inventory Procurement Approval Required",
+                    actor.getFullName() + " requested procurement for a new inventory item: " + request.name() + ".",
+                    "APPROVAL_REQUEST",
+                    created.id()
+            );
+
+            return new ActionSubmissionResponse(
+                    false,
+                    true,
+                    "New inventory procurement request submitted for approval.",
+                    created.id()
+            );
+        }
+
+        Inventory inventory = inventoryProcurementExecutorService.executeNewInventoryProcurement(request, actor);
+
+        notificationService.notifyAllUsers(
+                "INVENTORY",
+                "New Inventory Item Procured",
+                "A new inventory item was created and procured: " + inventory.getName(),
+                "INVENTORY",
+                inventory.getId()
         );
-    }
 
-    private String deriveStockStatus(Inventory inventory) {
-        if (inventory.getAvailableQuantity() <= 0) {
-            return "OUT";
-        }
-
-        int reorderLevel = inventory.getReorderLevel() != null ? inventory.getReorderLevel() : 0;
-        if (inventory.getAvailableQuantity() <= reorderLevel) {
-            return "LOW";
-        }
-
-        return "OK";
+        return new ActionSubmissionResponse(
+                true,
+                false,
+                "New inventory item procured successfully.",
+                null
+        );
     }
 
     @Transactional
@@ -217,6 +257,51 @@ public class InventoryService {
         );
     }
 
+    private void mapRequestToEntity(Inventory inventory, InventoryRequest request, boolean createMode) {
+        inventory.setName(request.name());
+        inventory.setCategory(request.category());
+        inventory.setTotalQuantity(request.totalQuantity());
+        inventory.setUnit(request.unit());
+        inventory.setLocation(request.location());
+        inventory.setReorderLevel(request.reorderLevel() != null ? request.reorderLevel() : 0);
+        inventory.setCriticalItem(request.criticalItem() != null ? request.criticalItem() : Boolean.FALSE);
+        inventory.setEstimatedUnitCost(request.estimatedUnitCost());
+        inventory.setCostLastUpdated(request.estimatedUnitCost() != null ? LocalDate.now() : null);
+
+        if (createMode) {
+            inventory.setAvailableQuantity(request.totalQuantity());
+        }
+    }
+
+    private InventoryResponse mapToResponse(Inventory inventory) {
+        return new InventoryResponse(
+                inventory.getId(),
+                inventory.getName(),
+                inventory.getCategory(),
+                inventory.getTotalQuantity(),
+                inventory.getAvailableQuantity(),
+                inventory.getUnit(),
+                inventory.getLocation(),
+                inventory.getReorderLevel(),
+                inventory.getCriticalItem() != null ? inventory.getCriticalItem() : Boolean.FALSE,
+                deriveStockStatus(inventory),
+                inventory.getEstimatedUnitCost()
+        );
+    }
+
+    private String deriveStockStatus(Inventory inventory) {
+        if (inventory.getAvailableQuantity() <= 0) {
+            return "OUT";
+        }
+
+        int reorderLevel = inventory.getReorderLevel() != null ? inventory.getReorderLevel() : 0;
+        if (inventory.getAvailableQuantity() <= reorderLevel) {
+            return "LOW";
+        }
+
+        return "OK";
+    }
+
     private String buildProcurementPayloadJson(Inventory inventory, InventoryProcurementRequest request) {
         return """
             {
@@ -241,8 +326,43 @@ public class InventoryService {
         );
     }
 
+    private String buildNewInventoryProcurementPayloadJson(InventoryCreateProcurementRequest request) {
+        return """
+            {
+              "name": "%s",
+              "category": "%s",
+              "unit": "%s",
+              "location": "%s",
+              "reorderLevel": %d,
+              "criticalItem": %s,
+              "estimatedUnitCost": %s,
+              "categoryId": %d,
+              "quantityAdded": %d,
+              "totalCost": %s,
+              "incidentId": %s,
+              "calamityId": %s,
+              "expenseDate": "%s",
+              "description": "%s"
+            }
+            """.formatted(
+                escapeJson(request.name()),
+                escapeJson(request.category()),
+                escapeJson(request.unit()),
+                escapeJson(request.location()),
+                request.reorderLevel() != null ? request.reorderLevel() : 0,
+                Boolean.TRUE.equals(request.criticalItem()),
+                request.estimatedUnitCost() != null ? request.estimatedUnitCost() : 0,
+                request.categoryId(),
+                request.quantityAdded(),
+                request.totalCost(),
+                request.incidentId() != null ? request.incidentId().toString() : "null",
+                request.calamityId() != null ? request.calamityId().toString() : "null",
+                request.expenseDate() != null ? request.expenseDate().toString() : "",
+                escapeJson(request.description() != null ? request.description() : "")
+        );
+    }
+
     private String escapeJson(String value) {
         return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
-
 }

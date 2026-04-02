@@ -1,6 +1,7 @@
 package com.isufst.mdrrmosystem.controller;
 
 import com.isufst.mdrrmosystem.request.InventoryAdjustmentRequest;
+import com.isufst.mdrrmosystem.request.InventoryCreateProcurementRequest;
 import com.isufst.mdrrmosystem.request.InventoryProcurementRequest;
 import com.isufst.mdrrmosystem.request.InventoryRequest;
 import com.isufst.mdrrmosystem.response.ActionSubmissionResponse;
@@ -14,6 +15,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/inventory")
 public class InventoryController {
+
     private final InventoryService inventoryService;
     private final InventoryTransactionService inventoryTransactionService;
 
@@ -26,6 +28,11 @@ public class InventoryController {
     @PostMapping
     public InventoryResponse create(@RequestBody InventoryRequest inventoryRequest) {
         return inventoryService.create(inventoryRequest);
+    }
+
+    @PostMapping("/procure-new")
+    public ActionSubmissionResponse procureNewStock(@RequestBody InventoryCreateProcurementRequest request) {
+        return inventoryService.procureNewStock(request);
     }
 
     @GetMapping

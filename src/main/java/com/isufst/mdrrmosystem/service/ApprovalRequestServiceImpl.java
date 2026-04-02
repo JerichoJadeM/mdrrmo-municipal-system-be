@@ -3,13 +3,11 @@ package com.isufst.mdrrmosystem.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.isufst.mdrrmosystem.entity.ApprovalRequest;
+import com.isufst.mdrrmosystem.entity.Inventory;
 import com.isufst.mdrrmosystem.entity.User;
 import com.isufst.mdrrmosystem.repository.ApprovalRequestRepository;
 import com.isufst.mdrrmosystem.repository.UserRepository;
-import com.isufst.mdrrmosystem.request.ApprovalDecisionRequest;
-import com.isufst.mdrrmosystem.request.ApprovalRequestCreateRequest;
-import com.isufst.mdrrmosystem.request.InventoryProcurementRequest;
-import com.isufst.mdrrmosystem.request.ReliefDistributionRequest;
+import com.isufst.mdrrmosystem.request.*;
 import com.isufst.mdrrmosystem.response.ApprovalRequestResponse;
 import com.isufst.mdrrmosystem.response.ApprovalRequestStatusResponse;
 import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
@@ -42,7 +40,8 @@ public class ApprovalRequestServiceImpl implements ApprovalRequestService {
                                       ObjectMapper objectMapper,
                                       InventoryProcurementExecutorService inventoryProcurementExecutorService,
                                       ReliefDistributionExecutorService reliefDistributionExecutorService,
-                                      ReliefPackDistributionExecutorService reliefPackDistributionExecutorService) {
+                                      ReliefPackDistributionExecutorService reliefPackDistributionExecutorService
+                                      ) {
         this.approvalRequestRepository = approvalRequestRepository;
         this.findAuthenticatedUser = findAuthenticatedUser;
         this.notificationService = notificationService;
@@ -346,6 +345,7 @@ public class ApprovalRequestServiceImpl implements ApprovalRequestService {
         String requestType = String.valueOf(approvalRequest.getRequestType()).trim().toUpperCase();
 
         switch (requestType) {
+            case "NEW_INVENTORY_PROCUREMENT_REQUEST" -> executeNewInventoryProcurementApproval(approvalRequest, reviewer);
             case "PROCUREMENT_REQUEST" -> executeProcurementApproval(approvalRequest, reviewer);
             case "RELIEF_DISTRIBUTION_REQUEST" -> executeReliefDistributionApproval(approvalRequest, reviewer);
             case "RELIEF_PACK_DISTRIBUTION_REQUEST" -> executeReliefPackDistributionApproval(approvalRequest, reviewer);
@@ -353,6 +353,31 @@ public class ApprovalRequestServiceImpl implements ApprovalRequestService {
             default -> {
                 // status-only approval for unknown/simple request types
             }
+        }
+    }
+
+    private void executeNewInventoryProcurementApproval(ApprovalRequest approvalRequest, User reviewer) {
+        try {
+            InventoryCreateProcurementRequest request = objectMapper.readValue(
+                    approvalRequest.getPayloadJson(),
+                    InventoryCreateProcurementRequest.class
+            );
+
+            Inventory createdInventory =
+                    inventoryProcurementExecutorService.executeNewInventoryProcurement(request, reviewer);
+
+            notificationService.notifyAllUsers(
+                    "INVENTORY",
+                    "New Inventory Item Procured",
+                    "Approved new inventory procurement has been completed for " + createdInventory.getName() + ".",
+                    "INVENTORY",
+                    createdInventory.getId()
+            );
+        } catch (Exception ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Failed to execute new inventory procurement approval: " + ex.getMessage()
+            );
         }
     }
 
@@ -529,6 +554,8 @@ public class ApprovalRequestServiceImpl implements ApprovalRequestService {
         String type = String.valueOf(approvalRequest.getRequestType()).trim().toUpperCase();
 
         return switch (type) {
+            case "NEW_INVENTORY_PROCUREMENT_REQUEST" ->
+                    "New inventory procurement was approved by " + reviewerName + " and has been completed.";
             case "PROCUREMENT_REQUEST" ->
                     "Procurement was approved by " + reviewerName + " and has been completed.";
             case "RELIEF_DISTRIBUTION_REQUEST" ->
@@ -556,6 +583,8 @@ public class ApprovalRequestServiceImpl implements ApprovalRequestService {
         String type = String.valueOf(approvalRequest.getRequestType()).trim().toUpperCase();
 
         String base = switch (type) {
+            case "NEW_INVENTORY_PROCUREMENT_REQUEST" ->
+                    "New inventory procurement request was rejected by " + reviewerName + ".";
             case "PROCUREMENT_REQUEST" ->
                     "Procurement request was rejected by " + reviewerName + ".";
             case "RELIEF_DISTRIBUTION_REQUEST" ->

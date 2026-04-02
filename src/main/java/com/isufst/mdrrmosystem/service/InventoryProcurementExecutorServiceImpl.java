@@ -2,6 +2,7 @@ package com.isufst.mdrrmosystem.service;
 
 import com.isufst.mdrrmosystem.entity.*;
 import com.isufst.mdrrmosystem.repository.*;
+import com.isufst.mdrrmosystem.request.InventoryCreateProcurementRequest;
 import com.isufst.mdrrmosystem.request.InventoryProcurementRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -81,5 +82,38 @@ public class InventoryProcurementExecutorServiceImpl implements InventoryProcure
 
         inventory.setProcurementExpense(expense);
         inventoryRepository.save(inventory);
+    }
+
+    @Override
+    @Transactional
+    public Inventory executeNewInventoryProcurement(InventoryCreateProcurementRequest request, User actor) {
+        Inventory inventory = new Inventory();
+        inventory.setName(request.name().trim());
+        inventory.setCategory(request.category().trim());
+        inventory.setUnit(request.unit().trim());
+        inventory.setLocation(request.location().trim());
+        inventory.setReorderLevel(request.reorderLevel() != null ? request.reorderLevel() : 0);
+        inventory.setCriticalItem(Boolean.TRUE.equals(request.criticalItem()));
+        inventory.setEstimatedUnitCost(request.estimatedUnitCost());
+        inventory.setCostLastUpdated(request.estimatedUnitCost() != null ? LocalDate.now() : null);
+        inventory.setTotalQuantity(0);
+        inventory.setAvailableQuantity(0);
+
+        inventoryRepository.save(inventory);
+
+        InventoryProcurementRequest procurementRequest = new InventoryProcurementRequest(
+                request.categoryId(),
+                request.quantityAdded(),
+                request.totalCost(),
+                request.expenseDate(),
+                request.description(),
+                request.incidentId(),
+                request.calamityId()
+        );
+
+        executeProcurement(inventory.getId(), procurementRequest, actor);
+
+        return inventoryRepository.findById(inventory.getId())
+                .orElseThrow(() -> new RuntimeException("Inventory not found after procurement"));
     }
 }
