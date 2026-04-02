@@ -28,13 +28,13 @@ public class Barangay {
     @Column(nullable = false)
     private int population;
 
-    @Column(name = "flood_prone")
+    @Column(name = "flood_prone", columnDefinition = "TINYINT(1) default 0")
     private boolean floodProne;
 
-    @Column(name = "landslide_prone")
+    @Column(name = "landslide_prone", columnDefinition = "TINYINT(1) default 0")
     private boolean landslideProne;
 
-    @Column(name = "coastal")
+    @Column(name = "coastal", columnDefinition = "TINYINT(1) default 0")
     private boolean coastal;
 
     @Column(name = "risk_level")
