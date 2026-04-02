@@ -67,10 +67,10 @@ public class User implements UserDetails {
     @Column(name = "account_status", nullable = false)
     private String accountStatus = "ACTIVE"; // ACTIVE, INACTIVE, SUSPENDED
 
-    @Column(name = "responder_eligible", nullable = false)
+    @Column(name = "responder_eligible", columnDefinition = "TINYINT(1) default 0")
     private Boolean responderEligible = false;
 
-    @Column(name = "coordinator_eligible", nullable = false)
+    @Column(name = "coordinator_eligible", columnDefinition = "TINYINT(1) default 0")
     private Boolean coordinatorEligible = false;
 
     public User(){}
