@@ -141,51 +141,51 @@ public class ResourcesReadinessService {
                 ? (int) Math.round(budgetCurrent.utilizationRate())
                 : 0;
 
-        String inventoryRiskLevel = computeInventoryRiskLevel(inventoryLowStockCount, inventoryOutOfStockCount);
-        String reliefRiskLevel = computeReliefRiskLevel(reliefLowStockCount, (int) estimatedFamilyCoverage);
-        String evacuationRiskLevel = computeEvacuationRiskLevel(overallOccupancyRate, nearFullCentersCount, fullCentersCount);
+        double forecastGap = Math.max((double) totalEvacuees - estimatedFamilyCoverage, 0);
+
+        String inventoryRiskLevel = computeInventoryRiskLevel(
+                inventoryLowStockCount,
+                inventoryOutOfStockCount
+        );
+
+        String reliefRiskLevel = computeReliefRiskLevel(
+                reliefLowStockCount,
+                (int) estimatedFamilyCoverage,
+                totalEvacuees
+        );
+
+        String evacuationRiskLevel = computeEvacuationRiskLevel(
+                overallOccupancyRate,
+                nearFullCentersCount,
+                fullCentersCount
+        );
+
         String budgetRiskLevel = computeBudgetRiskLevel(budgetUtilizationRate);
 
+        List<String> warnings = buildReadinessWarnings(
+                inventoryLowStockCount,
+                inventoryOutOfStockCount,
+                reliefLowStockCount,
+                forecastGap,
+                totalEvacuees,
+                nearFullCentersCount,
+                fullCentersCount,
+                budgetUtilizationRate
+        );
+
         int overallReadinessScore = computeOverallReadinessScore(
-                inventoryRiskLevel,
-                reliefRiskLevel,
-                evacuationRiskLevel,
-                budgetRiskLevel
+                inventoryLowStockCount,
+                inventoryOutOfStockCount,
+                reliefLowStockCount,
+                (int) estimatedFamilyCoverage,
+                totalEvacuees,
+                overallOccupancyRate,
+                nearFullCentersCount,
+                fullCentersCount,
+                budgetUtilizationRate
         );
 
         String overallReadinessRiskLevel = mapScoreToRiskLevel(overallReadinessScore);
-
-        double forecastGap = Math.max((double) totalEvacuees - estimatedFamilyCoverage, 0);
-
-        List<String> warnings = new ArrayList<>();
-
-        if (inventoryOutOfStockCount > 0) {
-            warnings.add(inventoryOutOfStockCount + " inventory item(s) are out of stock.");
-        }
-
-        if (inventoryLowStockCount > 0) {
-            warnings.add(inventoryLowStockCount + " inventory item(s) are at low stock.");
-        }
-
-        if (reliefLowStockCount > 0) {
-            warnings.add(reliefLowStockCount + " relief item(s) are at low stock.");
-        }
-
-        if (fullCentersCount > 0) {
-            warnings.add(fullCentersCount + " evacuation center(s) are already full.");
-        } else if (nearFullCentersCount > 0) {
-            warnings.add(nearFullCentersCount + " evacuation center(s) are nearing full capacity.");
-        }
-
-        if (budgetUtilizationRate >= 90) {
-            warnings.add("Budget utilization is critical at " + budgetUtilizationRate + "%.");
-        } else if (budgetUtilizationRate >= 75) {
-            warnings.add("Budget utilization is high at " + budgetUtilizationRate + "%.");
-        }
-
-        if (forecastGap > 0) {
-            warnings.add("Estimated relief coverage is short by " + Math.round(forecastGap) + " family-equivalent unit(s) versus current evacuee load.");
-        }
 
         LocalDateTime fromDate = LocalDateTime.now().minusDays(30);
         LocalDateTime toDate = LocalDateTime.now().plusSeconds(1);
@@ -217,6 +217,177 @@ public class ResourcesReadinessService {
                 warnings,
                 topConsumedResources
         );
+    }
+
+    private List<String> buildReadinessWarnings(long inventoryLowStockCount,
+                                                long inventoryOutOfStockCount,
+                                                long reliefLowStockCount,
+                                                double forecastGap,
+                                                int totalEvacuees,
+                                                long nearFullCentersCount,
+                                                long fullCentersCount,
+                                                int budgetUtilizationRate) {
+        List<String> warnings = new ArrayList<>();
+
+        if (inventoryOutOfStockCount > 0) {
+            warnings.add(inventoryOutOfStockCount + " inventory item(s) are out of stock.");
+        }
+
+        if (inventoryLowStockCount > 0) {
+            warnings.add(inventoryLowStockCount + " inventory item(s) are at low stock.");
+        }
+
+        if (reliefLowStockCount > 0) {
+            warnings.add(reliefLowStockCount + " relief item(s) are at low stock.");
+        }
+
+        if (fullCentersCount > 0) {
+            warnings.add(fullCentersCount + " evacuation center(s) are already full.");
+        } else if (nearFullCentersCount > 0) {
+            warnings.add(nearFullCentersCount + " evacuation center(s) are nearing full capacity.");
+        }
+
+        if (budgetUtilizationRate >= 90) {
+            warnings.add("Budget utilization is critical at " + budgetUtilizationRate + "%.");
+        } else if (budgetUtilizationRate >= 75) {
+            warnings.add("Budget utilization is high at " + budgetUtilizationRate + "%.");
+        } else if (budgetUtilizationRate >= 50) {
+            warnings.add("Budget utilization is elevated at " + budgetUtilizationRate + "%.");
+        }
+
+        if (forecastGap > 0) {
+            int shortagePercent = totalEvacuees > 0
+                    ? (int) Math.round((forecastGap * 100.0) / totalEvacuees)
+                    : 0;
+
+            warnings.add(
+                    "Estimated relief coverage is short by "
+                            + Math.round(forecastGap)
+                            + " family-equivalent unit(s)"
+                            + (totalEvacuees > 0 ? " (" + shortagePercent + "% of current evacuee load)." : ".")
+            );
+        }
+
+        return warnings;
+    }
+
+    private String computeInventoryRiskLevel(long lowStockCount, long outOfStockCount) {
+        if (outOfStockCount >= 3 || lowStockCount >= 10) return "CRITICAL";
+        if (outOfStockCount >= 1 || lowStockCount >= 5) return "HIGH";
+        if (lowStockCount >= 1) return "MODERATE";
+        return "LOW";
+    }
+
+    private String computeReliefRiskLevel(long reliefLowStockCount,
+                                          int estimatedFamilyCoverage,
+                                          int totalEvacuees) {
+        int coverageGap = Math.max(totalEvacuees - estimatedFamilyCoverage, 0);
+        double shortageRatio = totalEvacuees > 0
+                ? (coverageGap * 1.0) / totalEvacuees
+                : 0.0;
+
+        if ((coverageGap > 0 && shortageRatio >= 0.50)
+                || coverageGap >= 100
+                || (totalEvacuees > 0 && estimatedFamilyCoverage == 0)) {
+            return "CRITICAL";
+        }
+
+        if (coverageGap > 0 || reliefLowStockCount >= 5 || estimatedFamilyCoverage <= 20) {
+            return "HIGH";
+        }
+
+        if (reliefLowStockCount >= 1 || estimatedFamilyCoverage <= 50) {
+            return "MODERATE";
+        }
+
+        return "LOW";
+    }
+
+    private String computeEvacuationRiskLevel(int overallOccupancyRate,
+                                              long nearFullCentersCount,
+                                              long fullCentersCount) {
+        if (fullCentersCount > 0 || overallOccupancyRate >= 95) return "CRITICAL";
+        if (nearFullCentersCount >= 2 || overallOccupancyRate >= 85) return "HIGH";
+        if (nearFullCentersCount >= 1 || overallOccupancyRate >= 70) return "MODERATE";
+        return "LOW";
+    }
+
+    private String computeBudgetRiskLevel(int budgetUtilizationRate) {
+        if (budgetUtilizationRate >= 90) return "CRITICAL";
+        if (budgetUtilizationRate >= 75) return "HIGH";
+        if (budgetUtilizationRate >= 50) return "MODERATE";
+        return "LOW";
+    }
+
+    private int computeOverallReadinessScore(long inventoryLowStockCount,
+                                             long inventoryOutOfStockCount,
+                                             long reliefLowStockCount,
+                                             int estimatedFamilyCoverage,
+                                             int totalEvacuees,
+                                             int overallOccupancyRate,
+                                             long nearFullCentersCount,
+                                             long fullCentersCount,
+                                             int budgetUtilizationRate) {
+        int inventoryPenalty = clampPenalty(
+                (int) (inventoryOutOfStockCount * 12 + inventoryLowStockCount * 3),
+                35
+        );
+
+        int coverageGap = Math.max(totalEvacuees - estimatedFamilyCoverage, 0);
+        double shortageRatio = totalEvacuees > 0
+                ? (coverageGap * 1.0) / totalEvacuees
+                : 0.0;
+
+        int reliefPenalty = 0;
+        if (coverageGap > 0) {
+            reliefPenalty += 12;
+            reliefPenalty += (int) Math.round(shortageRatio * 20);
+        } else if (estimatedFamilyCoverage <= 20) {
+            reliefPenalty += 14;
+        } else if (estimatedFamilyCoverage <= 50) {
+            reliefPenalty += 8;
+        }
+        reliefPenalty += (int) Math.min(reliefLowStockCount * 2, 10);
+        reliefPenalty = clampPenalty(reliefPenalty, 35);
+
+        int evacuationPenalty = 0;
+        if (fullCentersCount > 0 || overallOccupancyRate >= 95) {
+            evacuationPenalty = 30;
+        } else if (nearFullCentersCount > 0 || overallOccupancyRate >= 70) {
+            evacuationPenalty = 10
+                    + (int) Math.min(nearFullCentersCount * 5, 10)
+                    + Math.max(0, (overallOccupancyRate - 70) / 5);
+        }
+        evacuationPenalty = clampPenalty(evacuationPenalty, 25);
+
+        int budgetPenalty;
+        if (budgetUtilizationRate >= 90) {
+            budgetPenalty = 20;
+        } else if (budgetUtilizationRate >= 75) {
+            budgetPenalty = 14;
+        } else if (budgetUtilizationRate >= 50) {
+            budgetPenalty = 8;
+        } else {
+            budgetPenalty = 0;
+        }
+
+        int totalPenalty = clampPenalty(
+                inventoryPenalty + reliefPenalty + evacuationPenalty + budgetPenalty,
+                90
+        );
+
+        return Math.max(10, 100 - totalPenalty);
+    }
+
+    private String mapScoreToRiskLevel(int score) {
+        if (score <= 30) return "CRITICAL";
+        if (score <= 55) return "HIGH";
+        if (score <= 75) return "MODERATE";
+        return "LOW";
+    }
+
+    private int clampPenalty(int value, int max) {
+        return Math.max(0, Math.min(value, max));
     }
 
     private boolean isReliefCategory(String category) {
@@ -264,27 +435,9 @@ public class ResourcesReadinessService {
         return center.currentEvacuees() != null ? center.currentEvacuees() : 0;
     }
 
-    private String computeInventoryRiskLevel(long lowStockCount, long outOfStockCount) {
-        if (outOfStockCount > 0) return "HIGH";
-        if (lowStockCount >= 5) return "MODERATE";
-        return "LOW";
-    }
-
     private String computeReliefRiskLevel(long reliefLowStockCount, int estimatedFamilyCoverage) {
         if (estimatedFamilyCoverage <= 20) return "HIGH";
         if (reliefLowStockCount >= 3 || estimatedFamilyCoverage <= 50) return "MODERATE";
-        return "LOW";
-    }
-
-    private String computeEvacuationRiskLevel(int overallOccupancyRate, long nearFullCentersCount, long fullCentersCount) {
-        if (fullCentersCount > 0 || overallOccupancyRate >= 95) return "HIGH";
-        if (nearFullCentersCount > 0 || overallOccupancyRate >= 80) return "MODERATE";
-        return "LOW";
-    }
-
-    private String computeBudgetRiskLevel(int budgetUtilizationRate) {
-        if (budgetUtilizationRate >= 90) return "HIGH";
-        if (budgetUtilizationRate >= 70) return "MODERATE";
         return "LOW";
     }
 
@@ -309,12 +462,6 @@ public class ResourcesReadinessService {
         ) / 4.0;
 
         return (int) Math.round(average);
-    }
-
-    private String mapScoreToRiskLevel(int score) {
-        if (score >= 80) return "LOW";
-        if (score >= 55) return "MODERATE";
-        return "HIGH";
     }
 
     private boolean isReliefItem(Inventory inventory) {
