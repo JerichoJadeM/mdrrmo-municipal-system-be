@@ -4,7 +4,7 @@ import com.isufst.mdrrmosystem.service.BarangaySyncService;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-@Component
+//@Component
 public class BarangaySyncScheduler {
 
     private final BarangaySyncService barangaySyncService;
