@@ -46,5 +46,7 @@ public interface OperationHistoryRepository extends JpaRepository<OperationHisto
                          @Param("operationId") Long operationId,
                          @Param("fromDate") LocalDateTime fromDate,
                          @Param("toDate") LocalDateTime toDate);
+
+    List<OperationHistory> findTop6ByOrderByPerformedAtDesc();
 }
 

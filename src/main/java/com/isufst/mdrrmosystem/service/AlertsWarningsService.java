@@ -70,80 +70,137 @@ public class AlertsWarningsService {
 
     @Transactional(readOnly = true)
     public AlertsWarningsOverviewResponse getOverview() {
-        MunicipalWeatherForecastResponse weather = weatherForecastService.getMunicipalForecast();
-        ResourcesReadinessSummaryResponse resources = resourcesReadinessService.getReadinessSummary();
-        BudgetCurrentSummaryResponse budget = budgetService.getCurrentSummary();
 
-        List<User> availableResponders = userRepository.findAvailableResponders();
-        List<EvacuationActivation> openCenters = evacuationActivationRepository.findByStatus("OPEN");
-        List<Inventory> inventory = inventoryRepository.findAll();
+        // 🔹 External + summaries (OK)
+        var weather = weatherForecastService.getMunicipalForecast();
+        var resources = resourcesReadinessService.getReadinessSummary();
+        var budget = budgetService.getCurrentSummary();
+
+        // 🔹 COUNT instead of LOAD
+        long availableResponders = userRepository.countAvailableResponders();
 
         long activeIncidents =
-                incidentRepository.countByStatus("ONGOING")
-                        + incidentRepository.countByStatus("IN_PROGRESS")
-                        + incidentRepository.countByStatus("ON_SITE");
+                incidentRepository.countByStatus("ONGOING") +
+                        incidentRepository.countByStatus("IN_PROGRESS") +
+                        incidentRepository.countByStatus("ON_SITE");
 
-        long activeCalamities = calamityRepository.findAll().stream()
-                .filter(c -> isAnyStatus(c.getStatus(), "ACTIVE", "MONITORING"))
-                .count();
+        long activeCalamities =
+                calamityRepository.countByStatusIn(List.of("ACTIVE", "MONITORING"));
 
-        List<AlertsReadinessDomainResponse> readinessDomains = buildReadinessDomains(
-                weather,
-                resources,
-                budget,
-                availableResponders,
-                openCenters,
-                activeIncidents,
-                activeCalamities,
-                inventory
-        );
+        long criticalOutOfStock = inventoryRepository.countCriticalOutOfStock();
+        long criticalLowStock = inventoryRepository.countCriticalLowStock();
 
-        List<ActiveAlertResponse> activeAlerts = buildActiveAlerts(
-                weather,
-                resources,
-                budget,
-                availableResponders,
-                openCenters,
-                activeIncidents,
-                activeCalamities,
-                inventory
-        );
+        long openCenters =
+                evacuationActivationRepository.countByStatus("OPEN");
 
-        List<PriorityActionResponse> priorityActions = buildPriorityActions(activeAlerts);
-        List<WarningHistoryResponse> recentHistory = buildRecentHistory();
-        List<ReadinessNoteResponse> readinessNotes = buildReadinessNotes(
-                weather,
-                resources,
-                budget,
-                availableResponders,
-                activeIncidents,
-                activeCalamities,
-                activeAlerts
-        );
+        // 🔹 LIMITED history
+        List<OperationHistory> history =
+                operationHistoryRepository.findTop6ByOrderByPerformedAtDesc();
 
-        String overallReadinessLabel = mapOverallReadiness(resources.overallReadinessRiskLevel());
-        int criticalGapsCount = (int) activeAlerts.stream()
-                .filter(alert -> isAnyStatus(alert.severity(), "HIGH", "CRITICAL"))
-                .count();
+        // 🔥 Build lightweight alerts (NO heavy loops)
+        List<ActiveAlertResponse> alerts = new ArrayList<>();
 
-        String responseCapacityLabel = availableResponders.size() + " Available";
+        if (criticalOutOfStock > 0) {
+            alerts.add(new ActiveAlertResponse(
+                    "RESOURCE",
+                    "CRITICAL",
+                    "ACTIVE",
+                    "Critical inventory is out of stock",
+                    "Immediate replenishment required",
+                    "Inventory",
+                    now(),
+                    "System",
+                    "Restock immediately"
+            ));
+        } else if (criticalLowStock > 0) {
+            alerts.add(new ActiveAlertResponse(
+                    "RESOURCE",
+                    "HIGH",
+                    "ACTIVE",
+                    "Critical inventory running low",
+                    "Monitor and replenish soon",
+                    "Inventory",
+                    now(),
+                    "System",
+                    "Prepare restock"
+            ));
+        }
 
+        if (availableResponders < 4) {
+            alerts.add(new ActiveAlertResponse(
+                    "PERSONNEL",
+                    "CRITICAL",
+                    "ACTIVE",
+                    "Low responder availability",
+                    "Insufficient responders for operations",
+                    "Personnel",
+                    now(),
+                    "System",
+                    "Activate reserves"
+            ));
+        }
+
+        if (budget.utilizationRate() >= 90) {
+            alerts.add(new ActiveAlertResponse(
+                    "BUDGET",
+                    "CRITICAL",
+                    "ACTIVE",
+                    "Budget critical level",
+                    "Budget almost depleted",
+                    "Budget",
+                    now(),
+                    "System",
+                    "Review expenses"
+            ));
+        }
+
+        // 🔹 Map history (small only)
+        List<WarningHistoryResponse> historyResponse = history.stream()
+                .map(h -> new WarningHistoryResponse(
+                        safe(h.getActionType()),
+                        safe(h.getDescription()),
+                        safe(h.getToStatus()),
+                        h.getPerformedAt() != null ? h.getPerformedAt().toString() : null
+                ))
+                .toList();
+
+        // 🔹 Summary
         AlertsWarningsSummaryResponse summary = new AlertsWarningsSummaryResponse(
-                overallReadinessLabel,
-                activeAlerts.size(),
-                criticalGapsCount,
-                responseCapacityLabel
+                mapOverall(resources.overallReadinessRiskLevel()),
+                alerts.size(),
+                (int) alerts.stream().filter(a -> isCritical(a.severity())).count(),
+                availableResponders + " Available"
         );
 
         return new AlertsWarningsOverviewResponse(
-                LocalDateTime.now().toString(),
+                now(),
                 summary,
-                readinessDomains,
-                activeAlerts,
-                priorityActions,
-                recentHistory,
-                readinessNotes
+                List.of(), // keep minimal or rebuild lightweight
+                alerts,
+                List.of(), // optional
+                historyResponse,
+                List.of()  // optional
         );
+    }
+
+    private String now() {
+        return LocalDateTime.now().toString();
+    }
+
+    private boolean isCritical(String s) {
+        return "CRITICAL".equalsIgnoreCase(s) || "HIGH".equalsIgnoreCase(s);
+    }
+
+    private String safe(String v) {
+        return v == null || v.isBlank() ? "--" : v;
+    }
+
+    private String mapOverall(String risk) {
+        return switch (risk == null ? "" : risk.toUpperCase()) {
+            case "LOW" -> "Ready";
+            case "MEDIUM", "HIGH" -> "Partially Ready";
+            default -> "Not Ready";
+        };
     }
 
     private List<AlertsReadinessDomainResponse> buildReadinessDomains(
@@ -739,9 +796,5 @@ public class AlertsWarningsService {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private String safe(String value) {
-        return value == null || value.isBlank() ? "--" : value;
     }
 }

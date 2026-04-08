@@ -22,4 +22,24 @@ public interface InventoryRepository extends JpaRepository<Inventory, Long> {
     List<Inventory> findForResourcesView(@Param("keyword") String keyword,
                                          @Param("category") String category);
 
+    @Query("""
+        SELECT COUNT(i) 
+        FROM Inventory i 
+        WHERE i.availableQuantity <= i.reorderLevel
+    """)
+    long countLowStockItems();
+
+    @Query("""
+        SELECT COUNT(i)
+        FROM Inventory i
+        WHERE i.availableQuantity = 0 AND i.criticalItem = true
+    """)
+    long countCriticalOutOfStock();
+
+    @Query("""
+        SELECT COUNT(i)
+        FROM Inventory i
+        WHERE i.availableQuantity <= i.reorderLevel AND i.criticalItem = true
+    """)
+    long countCriticalLowStock();
 }

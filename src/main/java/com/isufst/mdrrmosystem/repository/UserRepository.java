@@ -63,4 +63,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
         where upper(a.authority) = 'ROLE_ADMIN'
     """)
     long countAdminUser();
+
+    @Query("""
+        SELECT COUNT(u)
+        FROM User u
+        WHERE u.responderEligible = true AND u.assignmentStatus = 'AVAILABLE'
+    """)
+    long countAvailableResponders();
 }
