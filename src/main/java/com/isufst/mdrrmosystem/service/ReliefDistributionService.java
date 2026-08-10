@@ -210,7 +210,7 @@ public class ReliefDistributionService {
                 r.getEvacuationActivation() != null
                         ? r.getEvacuationActivation().getCenter().getName()
                         : "N/A",
-                r.getDistributedBy().getUsername()
+                r.getDistributedBy() != null ? r.getDistributedBy().getUsername() : "N/A"
         );
     }
 

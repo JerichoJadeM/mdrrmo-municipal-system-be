@@ -5,6 +5,7 @@ import com.isufst.mdrrmosystem.entity.Incident;
 import com.isufst.mdrrmosystem.repository.CalamityRepository;
 import com.isufst.mdrrmosystem.repository.ExpenseRepository;
 import com.isufst.mdrrmosystem.repository.IncidentRepository;
+import com.isufst.mdrrmosystem.repository.OperationResourceUsageRepository;
 import com.isufst.mdrrmosystem.response.BudgetForecastBreakdownResponse;
 import com.isufst.mdrrmosystem.response.BudgetForecastResponse;
 import com.isufst.mdrrmosystem.response.CategoryAllocationForecastResponse;
@@ -24,15 +25,18 @@ public class BudgetForecastBreakdownService {
     private final IncidentRepository incidentRepository;
     private final CalamityRepository calamityRepository;
     private final ExpenseRepository expenseRepository;
+    private final OperationResourceUsageRepository operationResourceUsageRepository;
 
     public BudgetForecastBreakdownService(BudgetForecastService budgetForecastService,
                                           IncidentRepository incidentRepository,
                                           CalamityRepository calamityRepository,
-                                          ExpenseRepository expenseRepository) {
+                                          ExpenseRepository expenseRepository,
+                                          OperationResourceUsageRepository operationResourceUsageRepository) {
         this.budgetForecastService = budgetForecastService;
         this.incidentRepository = incidentRepository;
         this.calamityRepository = calamityRepository;
         this.expenseRepository = expenseRepository;
+        this.operationResourceUsageRepository = operationResourceUsageRepository;
     }
 
     @Transactional(readOnly = true)
@@ -128,6 +132,11 @@ public class BudgetForecastBreakdownService {
 
                     double forecastAmount = incidentForecastTotal * share;
 
+                    double actualCost = rows.stream()
+                            .mapToDouble(incident -> safeAmount(
+                                    operationResourceUsageRepository.sumLineTotalByOperationTypeAndOperationId("INCIDENT", incident.getId())))
+                            .sum();
+
                     return new OperationTypeForecastResponse(
                             "INCIDENT",
                             type,
@@ -136,7 +145,8 @@ public class BudgetForecastBreakdownService {
                             historicalAverageCost,
                             forecastAmount,
                             share * 100,
-                            "Distributed from incident forecast chunk using historical expense weight."
+                            "Distributed from incident forecast chunk using historical expense weight.",
+                            actualCost
                     );
                 })
                 .sorted(Comparator.comparing(OperationTypeForecastResponse::forecastAmount).reversed())
@@ -173,6 +183,11 @@ public class BudgetForecastBreakdownService {
 
                     double forecastAmount = calamityForecastTotal * share;
 
+                    double actualCost = rows.stream()
+                            .mapToDouble(calamity -> safeAmount(
+                                    operationResourceUsageRepository.sumLineTotalByOperationTypeAndOperationId("CALAMITY", calamity.getId())))
+                            .sum();
+
                     return new OperationTypeForecastResponse(
                             "CALAMITY",
                             type,
@@ -181,7 +196,8 @@ public class BudgetForecastBreakdownService {
                             historicalAverageCost,
                             forecastAmount,
                             share * 100,
-                            "Distributed from calamity forecast chunk using historical expense weight."
+                            "Distributed from calamity forecast chunk using historical expense weight.",
+                            actualCost
                     );
                 })
                 .sorted(Comparator.comparing(OperationTypeForecastResponse::forecastAmount).reversed())

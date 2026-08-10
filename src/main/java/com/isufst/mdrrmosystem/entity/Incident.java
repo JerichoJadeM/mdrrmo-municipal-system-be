@@ -39,6 +39,12 @@ public class Incident {
     @JoinColumn(name = "reported_by")
     private User reportedBy;
 
+    @Column(name = "archived_at")
+    private LocalDateTime archivedAt;
+
+    @Column(name = "archive_cleared_at")
+    private LocalDateTime archiveClearedAt;
+
     public Incident() {}
 
     public Incident(String type, Barangay barangay, String severity, String status, LocalDateTime reportedAt, String description) {
@@ -120,5 +126,21 @@ public class Incident {
 
     public void setReportedBy(User reportedBy) {
         this.reportedBy = reportedBy;
+    }
+
+    public LocalDateTime getArchivedAt() {
+        return archivedAt;
+    }
+
+    public void setArchivedAt(LocalDateTime archivedAt) {
+        this.archivedAt = archivedAt;
+    }
+
+    public LocalDateTime getArchiveClearedAt() {
+        return archiveClearedAt;
+    }
+
+    public void setArchiveClearedAt(LocalDateTime archiveClearedAt) {
+        this.archiveClearedAt = archiveClearedAt;
     }
 }

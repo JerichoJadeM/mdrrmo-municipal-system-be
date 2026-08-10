@@ -25,6 +25,7 @@ public class OperationalForecastService {
     private final BudgetRepository budgetRepository;
     private final ExpenseRepository expenseRepository;
     private final ForecastRuleRegistry forecastRuleRegistry;
+    private final OperationResourceUsageRepository operationResourceUsageRepository;
 
     public OperationalForecastService(IncidentRepository incidentRepository,
                                       CalamityRepository calamityRepository,
@@ -34,7 +35,8 @@ public class OperationalForecastService {
                                       EvacuationCenterRepository evacuationCenterRepository,
                                       BudgetRepository budgetRepository,
                                       ExpenseRepository expenseRepository,
-                                      ForecastRuleRegistry forecastRuleRegistry) {
+                                      ForecastRuleRegistry forecastRuleRegistry,
+                                      OperationResourceUsageRepository operationResourceUsageRepository) {
         this.incidentRepository = incidentRepository;
         this.calamityRepository = calamityRepository;
         this.inventoryRepository = inventoryRepository;
@@ -44,6 +46,7 @@ public class OperationalForecastService {
         this.budgetRepository = budgetRepository;
         this.expenseRepository = expenseRepository;
         this.forecastRuleRegistry = forecastRuleRegistry;
+        this.operationResourceUsageRepository = operationResourceUsageRepository;
     }
 
     @Transactional(readOnly = true)
@@ -159,7 +162,11 @@ public class OperationalForecastService {
                 })
                 .sum();
 
-        return round2(reliefActual);
+        double resourceUsageCost = Optional.ofNullable(
+                operationResourceUsageRepository.sumLineTotalByOperationTypeAndOperationId("CALAMITY", calamityId)
+        ).orElse(0.0);
+
+        return round2(reliefActual + resourceUsageCost);
     }
 
     private List<ResourceRecommendationResponse> buildIncidentRecommendations(IncidentForecastTemplate template) {
@@ -452,7 +459,11 @@ public class OperationalForecastService {
                 .mapToDouble(this::estimateEvacuationActivationCost)
                 .sum();
 
-        return round2(expenseCost + reliefCost + evacuationCost);
+        double resourceUsageCost = Optional.ofNullable(
+                operationResourceUsageRepository.sumLineTotalByOperationTypeAndOperationId("INCIDENT", incidentId)
+        ).orElse(0.0);
+
+        return round2(expenseCost + reliefCost + evacuationCost + resourceUsageCost);
     }
 
     private double estimateReliefDistributionCost(ReliefDistribution reliefDistribution) {

@@ -1,7 +1,9 @@
 package com.isufst.mdrrmosystem.controller;
 
 import com.isufst.mdrrmosystem.entity.Budget;
+import com.isufst.mdrrmosystem.entity.PreviousBudget;
 import com.isufst.mdrrmosystem.request.BudgetRequest;
+import com.isufst.mdrrmosystem.request.PreviousBudgetRequest;
 import com.isufst.mdrrmosystem.response.*;
 import com.isufst.mdrrmosystem.service.BudgetService;
 import jakarta.validation.Valid;
@@ -39,6 +41,16 @@ public class BudgetController {
         return budgetService.createBudget(budget);
     }
 
+    @GetMapping("/previous-years")
+    public List<PreviousBudget> getPreviousBudgets() {
+        return budgetService.getPreviousBudgets();
+    }
+
+    @PostMapping("/previous-years")
+    public PreviousBudget createPreviousBudget(@Valid @RequestBody PreviousBudgetRequest request) {
+        return budgetService.createPreviousBudget(request);
+    }
+
     @GetMapping("/{id}/spent")
     public double getTotalSpent(@PathVariable long id) {
         return budgetService.getTotalSpent(id);
@@ -48,4 +60,6 @@ public class BudgetController {
     public double getRemaining(@PathVariable long id) {
         return budgetService.getRemainingBudget(id);
     }
+
+
 }

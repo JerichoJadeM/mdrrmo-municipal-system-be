@@ -21,7 +21,7 @@ public class ApprovalRequest {
     private String status;
     // PENDING, APPROVED, REJECTED, CANCELLED
 
-    @ManyToOne(optional = false)
+    @ManyToOne
     @JoinColumn(name = "requested_by_user_id")
     private User requestedBy;
 

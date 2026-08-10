@@ -34,4 +34,8 @@ public interface ReliefDistributionRepository extends JpaRepository<ReliefDistri
     List<ReliefDistribution> findAllWithinRange(@Param("fromDate") LocalDateTime fromDate,
                                                 @Param("toDate") LocalDateTime toDate);
 
+    @Modifying
+    @Query("update ReliefDistribution r set r.distributedBy = null where r.distributedBy.id = :userId")
+    void detachDistributedBy(@Param("userId") Long userId);
+
 }

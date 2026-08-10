@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -59,6 +60,12 @@ public class Calamity {
 
     @Column(length = 1000, nullable = false)
     private String description;
+
+    @Column(name = "archived_at")
+    private LocalDateTime archivedAt;
+
+    @Column(name = "archive_cleared_at")
+    private LocalDateTime archiveClearedAt;
 
     public Calamity() {}
 
@@ -175,5 +182,21 @@ public class Calamity {
 
     public void setAffectedBarangays(List<Barangay> affectedBarangays) {
         this.affectedBarangays = affectedBarangays;
+    }
+
+    public LocalDateTime getArchivedAt() {
+        return archivedAt;
+    }
+
+    public void setArchivedAt(LocalDateTime archivedAt) {
+        this.archivedAt = archivedAt;
+    }
+
+    public LocalDateTime getArchiveClearedAt() {
+        return archiveClearedAt;
+    }
+
+    public void setArchiveClearedAt(LocalDateTime archiveClearedAt) {
+        this.archiveClearedAt = archiveClearedAt;
     }
 }

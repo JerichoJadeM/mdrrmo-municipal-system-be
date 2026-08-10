@@ -17,7 +17,7 @@ public class Message {
     @JoinColumn(name = "conversation_id")
     private Conversation conversation;
 
-    @ManyToOne(optional = false)
+    @ManyToOne
     @JoinColumn(name = "sender_user_id")
     private User sender;
 

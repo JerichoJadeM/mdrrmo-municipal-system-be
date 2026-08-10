@@ -23,7 +23,7 @@ public class ResponseAction {
     private Incident incident;
 
     @ManyToOne
-    @JoinColumn(name = "responder_id", nullable = false)
+    @JoinColumn(name = "responder_id")
     private User responder;
 
     public Long getId() {

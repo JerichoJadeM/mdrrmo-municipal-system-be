@@ -1,21 +1,23 @@
 package com.isufst.mdrrmosystem.service;
 
-import com.isufst.mdrrmosystem.entity.Budget;
-import com.isufst.mdrrmosystem.entity.BudgetCategory;
-import com.isufst.mdrrmosystem.entity.Inventory;
-import com.isufst.mdrrmosystem.entity.User;
+import com.isufst.mdrrmosystem.entity.*;
 import com.isufst.mdrrmosystem.repository.BudgetRepository;
 import com.isufst.mdrrmosystem.repository.ExpenseRepository;
 import com.isufst.mdrrmosystem.repository.InventoryRepository;
+import com.isufst.mdrrmosystem.repository.PreviousBudgetRepository;
 import com.isufst.mdrrmosystem.request.BudgetRequest;
+import com.isufst.mdrrmosystem.request.PreviousBudgetRequest;
 import com.isufst.mdrrmosystem.response.*;
 import com.isufst.mdrrmosystem.util.FindAuthenticatedUser;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 public class BudgetService {
@@ -25,17 +27,20 @@ public class BudgetService {
     private final InventoryRepository inventoryRepository;
     private final FindAuthenticatedUser findAuthenticatedUser;
     private final CategoryService categoryService;
+    private final PreviousBudgetRepository  previousBudgetRepository;
 
     public BudgetService(BudgetRepository budgetRepository,
                          ExpenseRepository expenseRepository,
                          InventoryRepository inventoryRepository,
                          FindAuthenticatedUser findAuthenticatedUser,
-                         CategoryService categoryService) {
+                         CategoryService categoryService,
+                         PreviousBudgetRepository previousBudgetRepository) {
         this.budgetRepository = budgetRepository;
         this.expenseRepository = expenseRepository;
         this.inventoryRepository = inventoryRepository;
         this.findAuthenticatedUser = findAuthenticatedUser;
         this.categoryService = categoryService;
+        this.previousBudgetRepository = previousBudgetRepository;
     }
 
     @Transactional(readOnly = true)
@@ -134,28 +139,95 @@ public class BudgetService {
     }
 
     @Transactional(readOnly = true)
+    public List<PreviousBudget> getPreviousBudgets() {
+        return previousBudgetRepository.findAllByOrderByYearAsc();
+    }
+
+    @Transactional(readOnly = true)
     public List<BudgetHistoryResponse> getBudgetHistory(int years) {
         int currentYear = LocalDate.now().getYear();
         int startYear = currentYear - Math.max(years - 1, 0);
 
-        return budgetRepository.findAllByOrderByYearAsc().stream()
-                .filter(budget -> budget.getYear() >= startYear && budget.getYear() <= currentYear)
-                .map(budget -> {
-                    double obligations = expenseRepository.sumByBudgetId(budget.getId());
-                    double remaining = budget.getTotalAmount() - obligations;
-                    double utilization = budget.getTotalAmount() > 0
-                            ? (obligations / budget.getTotalAmount()) * 100
-                            : 0;
+        List<BudgetHistoryResponse> operational =
+                budgetRepository.findAllByOrderByYearAsc().stream()
+                        .filter(budget -> budget.getYear() >= startYear && budget.getYear() <= currentYear)
+                        .map(budget -> {
+                            double obligations = expenseRepository.sumByBudgetId(budget.getId());
+                            double remaining = budget.getTotalAmount() - obligations;
+                            double utilization = budget.getTotalAmount() > 0
+                                    ? (obligations / budget.getTotalAmount()) * 100 : 0;
 
-                    return new BudgetHistoryResponse(
-                            budget.getYear(),
-                            budget.getTotalAmount(),
-                            obligations,
-                            remaining,
-                            utilization
-                    );
-                })
+                            return new BudgetHistoryResponse(
+                                    budget.getYear(),
+                                    budget.getTotalAmount(),
+                                    obligations,
+                                    remaining,
+                                    utilization
+                            );
+                        })
+                        .toList();
+
+        List<BudgetHistoryResponse> historical = previousBudgetRepository.findAllByOrderByYearAsc().stream()
+                .filter(budget -> budget.getYear() >= startYear && budget.getYear() <= currentYear)
+                .map(budget -> new BudgetHistoryResponse(
+                        budget.getYear(),
+                        budget.getAllotment(),
+                        budget.getObligations(),
+                        budget.getRemaining(),
+                        budget.getUtilizationRate()
+                ))
                 .toList();
+
+        return Stream.concat(
+                historical.stream(),
+                operational.stream()
+        ).sorted(Comparator.comparing(BudgetHistoryResponse::year)).toList();
+    }
+
+    @Transactional
+    public PreviousBudget createPreviousBudget(PreviousBudgetRequest request) {
+        int currentYear = LocalDate.now().getYear();
+
+        if (request.year() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Year is required.");
+        }
+
+        if (request.year() >= currentYear) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Previous budget year must be lower than the current year: " + currentYear + ".");
+        }
+
+        if (request.year() > currentYear) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "The year cannot be in the future.");
+        }
+
+        if (previousBudgetRepository.existsByYear(request.year())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Previous budget year already exists: " + request.year());
+        }
+
+        double allotment = request.allotment() == null ? 0 : request.allotment();
+        double obligations = request.obligations() == null ? 0 : request.obligations();
+
+        if (obligations > allotment) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Obligations cannot be greater than allotment.");
+        }
+
+        double remaining = allotment - obligations;
+        double utilizationRate = allotment > 0 ? (obligations / allotment) * 100 : 0;
+
+        PreviousBudget previousBudget = new PreviousBudget();
+
+        previousBudget.setYear(request.year());
+        previousBudget.setAllotment(allotment);
+        previousBudget.setObligations(obligations);
+        previousBudget.setRemaining(remaining);
+        previousBudget.setUtilizationRate(utilizationRate);
+        previousBudget.setDescription(request.description());
+
+        return previousBudgetRepository.save(previousBudget);
     }
 
     // This one is hybrid and will over forecast when other categories are missing
@@ -169,9 +241,29 @@ public class BudgetService {
                 .filter(b -> b.getYear() >= startYear && b.getYear() <= currentYear)
                 .toList();
 
-        if (historicalBudgets.isEmpty()) {
+        Map<Integer, Double> historicalWindow = new TreeMap<>();
+        for (Budget budget : historicalBudgets) {
+            historicalWindow.put(budget.getYear(), budget.getTotalAmount());
+        }
+
+        previousBudgetRepository.findAllByOrderByYearAsc().stream()
+                .filter(b -> b.getYear() >= startYear && b.getYear() <= currentYear)
+                .forEach(b -> historicalWindow.merge(b.getYear(), b.getAllotment(), (existing, incoming) -> existing != null ? existing : incoming));
+
+        List<Budget> mergedHistoricalBudgets = historicalWindow.entrySet().stream()
+                .map(entry -> {
+                    Budget budget = new Budget();
+                    budget.setYear(entry.getKey());
+                    budget.setTotalAmount(entry.getValue());
+                    return budget;
+                })
+                .toList();
+
+        if (mergedHistoricalBudgets.isEmpty()) {
             throw new RuntimeException("No budget history found for the previous 5 years.");
         }
+
+        historicalBudgets = mergedHistoricalBudgets;
 
         Budget currentBudget = historicalBudgets.stream()
                 .filter(b -> b.getYear() == currentYear)

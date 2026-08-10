@@ -23,12 +23,14 @@ import java.util.List;
 public class UserServiceImpl implements UserService{
 
     private final UserRepository userRepository;
+    private final UserDeletionCleanupService userDeletionCleanupService;
     private final FindAuthenticatedUser findAuthenticatedUser;
     private final PasswordEncoder passwordEncoder;
 
-    public UserServiceImpl(UserRepository userRepository,  FindAuthenticatedUser findAuthenticatedUser,
+    public UserServiceImpl(UserRepository userRepository, UserDeletionCleanupService userDeletionCleanupService, FindAuthenticatedUser findAuthenticatedUser,
                            PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
+        this.userDeletionCleanupService = userDeletionCleanupService;
         this.findAuthenticatedUser = findAuthenticatedUser;
         this.passwordEncoder = passwordEncoder;
     }
@@ -107,6 +109,7 @@ public class UserServiceImpl implements UserService{
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin cannot delete itself");
         }
 
+        userDeletionCleanupService.detachUserBeforeDelete(user.getId());
         userRepository.delete(user);
     }
 

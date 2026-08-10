@@ -114,7 +114,7 @@ public class MessageServiceImpl implements MessageService {
         Message message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
 
-        if (!(message.getSender().getId() == currentUser.getId())) {
+        if (!(message.getSender() != null && message.getSender().getId() == currentUser.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can only edit your own messages");
         }
 
@@ -135,7 +135,7 @@ public class MessageServiceImpl implements MessageService {
         Message message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
 
-        boolean isOwner = message.getSender().getId() == currentUser.getId();
+        boolean isOwner = message.getSender() != null && message.getSender().getId() == currentUser.getId();
         boolean isAdminOrManager = currentUser.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(role -> role.equals("ROLE_ADMIN") || role.equals("ROLE_MANAGER"));
@@ -154,7 +154,7 @@ public class MessageServiceImpl implements MessageService {
         Message message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
 
-        boolean isOwner = message.getSender().getId() == currentUser.getId();
+        boolean isOwner = message.getSender() != null && message.getSender().getId() == currentUser.getId();
         boolean isAdminOrManager = currentUser.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(role -> role.equals("ROLE_ADMIN") || role.equals("ROLE_MANAGER"));
@@ -192,7 +192,10 @@ public class MessageServiceImpl implements MessageService {
     }
 
     private MessageResponse mapMessage(Message message) {
-        return new MessageResponse(message.getId(), message.getSender().getId(), message.getSender().getFullName(),
+        User sender = message.getSender();
+        return new MessageResponse(message.getId(),
+                sender != null ? sender.getId() : 0L,
+                sender != null ? sender.getFullName() : "Deleted User",
                 message.getContent(), message.getCreatedAt(),
                 Boolean.TRUE.equals(message.getPinned()),
                 message.getEditedAt()

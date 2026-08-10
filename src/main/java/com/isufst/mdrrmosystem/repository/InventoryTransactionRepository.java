@@ -3,6 +3,7 @@ package com.isufst.mdrrmosystem.repository;
 import com.isufst.mdrrmosystem.entity.InventoryTransaction;
 import com.isufst.mdrrmosystem.response.TopConsumedResourceResponse;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -39,6 +40,10 @@ public interface InventoryTransactionRepository extends JpaRepository<InventoryT
                                                 @Param("recordId") Long recordId,
                                                 @Param("fromDate") LocalDateTime fromDate,
                                                 @Param("toDate") LocalDateTime toDate);
+
+    @Modifying
+    @Query("update InventoryTransaction t set t.performedBy = null where t.performedBy.id = :userId")
+    void detachPerformedBy(@Param("userId") Long userId);
 
 
     @Query("""

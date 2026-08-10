@@ -15,9 +15,12 @@ public class AdminAuditServiceImpl implements AdminAuditService {
 
     @Override
     public void log(User actor, User targetUser, String actionType, String description) {
+        User safeActor = actor != null && actor.getId() != null ? actor : null;
+        User safeTargetUser = targetUser != null && targetUser.getId() != null ? targetUser : null;
+
         AdminActionLog log = new AdminActionLog();
-        log.setActor(actor);
-        log.setTargetUser(targetUser);
+        log.setActor(safeActor);
+        log.setTargetUser(safeTargetUser);
         log.setActionType(actionType);
         log.setDescription(description);
         adminActionLogRepository.save(log);
