@@ -3,6 +3,7 @@ package com.isufst.mdrrmosystem.repository;
 import com.isufst.mdrrmosystem.response.CategoryBreakdownResponse;
 import com.isufst.mdrrmosystem.entity.Expense;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -37,6 +38,10 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
         WHERE e.incident.id = :incidentId
     """)
     Double sumByIncidentId(@Param("incidentId") Long incidentId);
+
+    @Modifying
+    @Query("update Expense e set e.createdBy = null where e.createdBy.id = :userId")
+    void detachCreatedBy(@Param("userId") Long userId);
 
     @Query("""
         SELECT COALESCE(SUM(e.amount), 0)

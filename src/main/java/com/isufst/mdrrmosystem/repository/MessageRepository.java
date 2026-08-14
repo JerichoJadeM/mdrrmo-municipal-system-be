@@ -28,5 +28,9 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     void clearOtherPinnedMessages(@Param("conversationId") Long conversationId,
                                   @Param("messageId") Long messageId);
 
+    @Modifying
+    @Query("update Message m set m.sender = null where m.sender.id = :userId")
+    void detachSender(@Param("userId") Long userId);
+
     Optional<Message> findFirstByConversation_IdAndPinnedTrue(Long conversationId);
 }

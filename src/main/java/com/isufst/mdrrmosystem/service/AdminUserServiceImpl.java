@@ -22,12 +22,14 @@ import java.util.stream.Collectors;
 @Service
 public class AdminUserServiceImpl implements AdminUserService {
     private final UserRepository userRepository;
+    private final UserDeletionCleanupService userDeletionCleanupService;
     private final FindAuthenticatedUser findAuthenticatedUser;
     private final AdminAuditService adminAuditService;
     private final PasswordEncoder passwordEncoder;
 
-    public AdminUserServiceImpl(UserRepository userRepository, FindAuthenticatedUser findAuthenticatedUser, AdminAuditService adminAuditService, PasswordEncoder passwordEncoder) {
+    public AdminUserServiceImpl(UserRepository userRepository, UserDeletionCleanupService userDeletionCleanupService, FindAuthenticatedUser findAuthenticatedUser, AdminAuditService adminAuditService, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
+        this.userDeletionCleanupService = userDeletionCleanupService;
         this.findAuthenticatedUser = findAuthenticatedUser;
         this.adminAuditService = adminAuditService;
         this.passwordEncoder = passwordEncoder;
@@ -113,14 +115,16 @@ public class AdminUserServiceImpl implements AdminUserService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "You cannot delete your own account");
         }
 
-        userRepository.delete(user);
+        userDeletionCleanupService.detachUserBeforeDelete(user.getId());
 
         adminAuditService.log(
                 actor,
-                user,
+                null,
                 "USER_DELETE",
                 actor.getFullName() + " deleted user " + user.getFullName()
         );
+
+        userRepository.delete(user);
     }
 
     @Override

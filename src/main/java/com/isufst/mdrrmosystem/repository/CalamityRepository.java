@@ -2,6 +2,7 @@ package com.isufst.mdrrmosystem.repository;
 
 import com.isufst.mdrrmosystem.entity.Calamity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -13,6 +14,8 @@ public interface CalamityRepository extends JpaRepository<Calamity, Long> {
     List<Calamity> findByDateBetween(LocalDate start, LocalDate end);
 
     long countByDateBetween(LocalDate start, LocalDate end);
+
+    List<Calamity> findByStatusAndArchiveClearedAtIsNull(String status);
 
     @Query("""
         SELECT COUNT(c)
@@ -43,4 +46,8 @@ public interface CalamityRepository extends JpaRepository<Calamity, Long> {
     """)
     List<Calamity> findAllWithinRange(@Param("fromDate") LocalDate fromDate,
                                       @Param("toDate") LocalDate toDate);
+
+    @Modifying
+    @Query("update Calamity c set c.coordinator = null where c.coordinator.id = :userId")
+    void detachCoordinator(@Param("userId") Long userId);
 }

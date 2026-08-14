@@ -3,9 +3,11 @@ package com.isufst.mdrrmosystem.service;
 import com.isufst.mdrrmosystem.entity.Budget;
 import com.isufst.mdrrmosystem.entity.BudgetCategory;
 import com.isufst.mdrrmosystem.entity.Inventory;
+import com.isufst.mdrrmosystem.entity.PreviousBudget;
 import com.isufst.mdrrmosystem.repository.BudgetRepository;
 import com.isufst.mdrrmosystem.repository.ExpenseRepository;
 import com.isufst.mdrrmosystem.repository.InventoryRepository;
+import com.isufst.mdrrmosystem.repository.PreviousBudgetRepository;
 import com.isufst.mdrrmosystem.response.BudgetForecastCategoryResponse;
 import com.isufst.mdrrmosystem.response.BudgetForecastDriverResponse;
 import com.isufst.mdrrmosystem.response.BudgetForecastResponse;
@@ -21,13 +23,16 @@ import java.util.stream.Collectors;
 public class BudgetForecastService {
 
     private final BudgetRepository budgetRepository;
+    private final PreviousBudgetRepository previousBudgetRepository;
     private final ExpenseRepository expenseRepository;
     private final InventoryRepository inventoryRepository;
 
     public BudgetForecastService(BudgetRepository budgetRepository,
+                                 PreviousBudgetRepository previousBudgetRepository,
                                  ExpenseRepository expenseRepository,
                                  InventoryRepository inventoryRepository) {
         this.budgetRepository = budgetRepository;
+        this.previousBudgetRepository = previousBudgetRepository;
         this.expenseRepository = expenseRepository;
         this.inventoryRepository = inventoryRepository;
     }
@@ -42,13 +47,34 @@ public class BudgetForecastService {
                 .filter(b -> b.getYear() >= startYear && b.getYear() <= currentYear)
                 .toList();
 
-        if (historicalBudgets.isEmpty()) {
+        Map<Integer, Double> annualAllotmentWindow = new TreeMap<>();
+        for (Budget budget : historicalBudgets) {
+            annualAllotmentWindow.put(budget.getYear(), budget.getTotalAmount());
+        }
+
+        for (PreviousBudget previousBudget : previousBudgetRepository.findAllByOrderByYearAsc()) {
+            if (previousBudget.getYear() >= startYear && previousBudget.getYear() <= currentYear) {
+                annualAllotmentWindow.merge(previousBudget.getYear(), previousBudget.getAllotment(),
+                        (existing, incoming) -> existing != null ? existing : incoming);
+            }
+        }
+
+        List<Budget> mergedHistoricalBudgets = annualAllotmentWindow.entrySet().stream()
+                .map(entry -> {
+                    Budget budget = new Budget();
+                    budget.setYear(entry.getKey());
+                    budget.setTotalAmount(entry.getValue());
+                    return budget;
+                })
+                .toList();
+
+        if (mergedHistoricalBudgets.isEmpty()) {
             throw new RuntimeException("No budget history found for the previous 5 years.");
         }
 
-        Budget currentBudget = historicalBudgets.stream()
-                .filter(b -> b.getYear() == currentYear)
-                .findFirst()
+        historicalBudgets = mergedHistoricalBudgets;
+
+        Budget currentBudget = budgetRepository.findFirstByYear(currentYear)
                 .orElseThrow(() -> new RuntimeException("Current year budget not found."));
 
         Map<String, List<BudgetCategory>> groupedHistory = new HashMap<>();
@@ -147,10 +173,19 @@ public class BudgetForecastService {
                 )
         );
 
+        double historicalWindowAverage = historicalBudgets.stream()
+                .mapToDouble(Budget::getTotalAmount)
+                .average()
+                .orElse(currentBudget.getTotalAmount());
+        double annualForecastScale = currentBudget.getTotalAmount() > 0
+                ? historicalWindowAverage / currentBudget.getTotalAmount()
+                : 1.0;
+        double adjustedTotalForecast = totalForecast * annualForecastScale;
+
         return new BudgetForecastResponse(
                 nextYear,
-                totalForecast,
-                "Forecast aligned to budget history, actual obligations, response demand, and latest price signals.",
+                adjustedTotalForecast,
+                "Forecast aligned to budget history, previous-year entries, actual obligations, response demand, and latest price signals.",
                 drivers,
                 rows.stream()
                         .sorted(Comparator.comparing(BudgetForecastCategoryResponse::section)

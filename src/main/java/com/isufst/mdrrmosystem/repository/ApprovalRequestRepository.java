@@ -2,6 +2,7 @@ package com.isufst.mdrrmosystem.repository;
 
 import com.isufst.mdrrmosystem.entity.ApprovalRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -38,6 +39,14 @@ public interface ApprovalRequestRepository extends JpaRepository<ApprovalRequest
             String referenceType,
             Long referenceId
     );
+
+    @Modifying
+    @Query("update ApprovalRequest a set a.requestedBy = null where a.requestedBy.id = :userId")
+    void detachRequestedBy(@Param("userId") Long userId);
+
+    @Modifying
+    @Query("update ApprovalRequest a set a.reviewedBy = null where a.reviewedBy.id = :userId")
+    void detachReviewedBy(@Param("userId") Long userId);
 
     @Query("""
         SELECT ar

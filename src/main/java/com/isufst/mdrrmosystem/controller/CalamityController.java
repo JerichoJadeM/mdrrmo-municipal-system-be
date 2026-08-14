@@ -29,6 +29,11 @@ public class CalamityController {
         return calamityService.getAllCalamityRecords();
     }
 
+    @GetMapping("/archived")
+    public List<CalamityResponse> getArchivedCalamities() {
+        return calamityService.getArchivedCalamities();
+    }
+
     @PutMapping("/{id}")
     public CalamityResponse updateCalamityRecord(@PathVariable Long id,
                                                  @Valid @RequestBody CalamityRequest calamityRequest){
@@ -62,5 +67,30 @@ public class CalamityController {
     public CalamityResponse markEnded(@PathVariable long id,
                                       @RequestBody(required = false) CalamityTransitionRequest request) {
         return calamityService.markCalamityEnded(id, request);
+    }
+
+    @PutMapping("/{id}/archive")
+    public CalamityResponse archiveCalamityRecord(@PathVariable long id) {
+        return calamityService.archiveCalamityRecord(id);
+    }
+
+    @PutMapping("/{id}/restore")
+    public CalamityResponse restoreCalamityRecord(@PathVariable long id) {
+        return calamityService.restoreCalamityRecord(id);
+    }
+
+    @PutMapping("/{id}/archive/clear")
+    public CalamityResponse clearArchivedCalamity(@PathVariable long id) {
+        return calamityService.clearArchivedCalamity(id);
+    }
+
+    @PutMapping("/archived/restore-all")
+    public List<CalamityResponse> restoreAllArchivedCalamities() {
+        return calamityService.restoreAllArchivedCalamities();
+    }
+
+    @PutMapping("/archived/clear-all")
+    public List<CalamityResponse> clearAllArchivedCalamities() {
+        return calamityService.clearAllArchivedCalamities();
     }
 }

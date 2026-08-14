@@ -2,6 +2,7 @@ package com.isufst.mdrrmosystem.repository;
 
 import com.isufst.mdrrmosystem.entity.AdminActionLog;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -11,6 +12,14 @@ import java.util.List;
 
 public interface AdminActionLogRepository extends JpaRepository<AdminActionLog, Long> {
     List<AdminActionLog> findTop20ByOrderByCreatedAtDesc();
+
+    @Modifying
+    @Query("delete from AdminActionLog a where a.actor.id = :userId")
+    void deleteByActorId(@Param("userId") Long userId);
+
+    @Modifying
+    @Query("delete from AdminActionLog a where a.targetUser.id = :userId")
+    void deleteByTargetUserId(@Param("userId") Long userId);
 
     @Query("""
         SELECT a

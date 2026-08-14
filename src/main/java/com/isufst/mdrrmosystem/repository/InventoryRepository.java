@@ -12,6 +12,8 @@ public interface InventoryRepository extends JpaRepository<Inventory, Long> {
 
     List<Inventory> findByCategory (String category);
 
+    Optional<Inventory> findFirstByNameIgnoreCase(String name);
+
     @Query("""
         SELECT i
         FROM Inventory i

@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,6 +33,7 @@ public class CalamityService {
     private final NotificationService notificationService;
     private final FindAuthenticatedUser findAuthenticatedUser;
     private final OperationApprovalGuard operationApprovalGuard;
+    private final OperationResourceUsageService operationResourceUsageService;
 
     public CalamityService(CalamityRepository calamityRepository,
                            BarangayRepository barangayRepository,
@@ -39,7 +41,8 @@ public class CalamityService {
                            OperationHistoryService operationHistoryService,
                            NotificationService notificationService,
                            FindAuthenticatedUser findAuthenticatedUser,
-                           OperationApprovalGuard operationApprovalGuard) {
+                           OperationApprovalGuard operationApprovalGuard,
+                           OperationResourceUsageService operationResourceUsageService) {
         this.calamityRepository = calamityRepository;
         this.barangayRepository = barangayRepository;
         this.userRepository = userRepository;
@@ -47,6 +50,7 @@ public class CalamityService {
         this.notificationService = notificationService;
         this.findAuthenticatedUser = findAuthenticatedUser;
         this.operationApprovalGuard = operationApprovalGuard;
+        this.operationResourceUsageService = operationResourceUsageService;
     }
 
     @Transactional
@@ -116,6 +120,10 @@ public class CalamityService {
         calamity.setStatus("MONITORING");
         Calamity saved = calamityRepository.save(calamity);
 
+        double actualCost = operationResourceUsageService.recordUsage(
+                "CALAMITY", saved.getId(), "MONITOR",
+                request != null ? request.selectedResources() : null, actor);
+
         operationHistoryService.log(
                 "CALAMITY",
                 saved.getId(),
@@ -123,8 +131,8 @@ public class CalamityService {
                 oldStatus,
                 saved.getStatus(),
                 "Calamity moved to MONITORING",
-                null,
-                null
+                buildTransitionMetadata(request != null ? request.overrideReason() : null, actualCost),
+                actor != null ? actor.getFullName() : null
         );
 
         return mapToResponse(saved);
@@ -157,6 +165,10 @@ public class CalamityService {
         calamity.setStatus("RESOLVED");
         Calamity saved = calamityRepository.save(calamity);
 
+        double actualCost = operationResourceUsageService.recordUsage(
+                "CALAMITY", saved.getId(), "RESOLVE",
+                request != null ? request.selectedResources() : null, actor);
+
         operationHistoryService.log(
                 "CALAMITY",
                 saved.getId(),
@@ -164,8 +176,8 @@ public class CalamityService {
                 oldStatus,
                 saved.getStatus(),
                 "Calamity moved to RESOLVED",
-                null,
-                null
+                buildTransitionMetadata(request != null ? request.overrideReason() : null, actualCost),
+                actor != null ? actor.getFullName() : null
         );
 
         return mapToResponse(saved);
@@ -197,6 +209,10 @@ public class CalamityService {
         calamity.setStatus("ENDED");
         Calamity saved = calamityRepository.save(calamity);
 
+        double actualCost = operationResourceUsageService.recordUsage(
+                "CALAMITY", saved.getId(), "END",
+                request != null ? request.selectedResources() : null, actor);
+
         operationHistoryService.log(
                 "CALAMITY",
                 saved.getId(),
@@ -204,11 +220,129 @@ public class CalamityService {
                 oldStatus,
                 saved.getStatus(),
                 "Calamity moved to ENDED",
-                null,
-                null
+                buildTransitionMetadata(request != null ? request.overrideReason() : null, actualCost),
+                actor != null ? actor.getFullName() : null
         );
 
         return mapToResponse(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public List<CalamityResponse> getArchivedCalamities() {
+        return calamityRepository.findByStatusAndArchiveClearedAtIsNull("ARCHIVED")
+                .stream()
+                .map(this::mapToResponse)
+                .toList();
+    }
+
+    @Transactional
+    public CalamityResponse archiveCalamityRecord(long calamityId) {
+        Calamity calamity = calamityRepository.findById(calamityId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Calamity Id not found: " + calamityId));
+
+        if (!"RESOLVED".equalsIgnoreCase(calamity.getStatus()) && !"ENDED".equalsIgnoreCase(calamity.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Only resolved or ended calamities can be archived");
+        }
+
+        String oldStatus = calamity.getStatus();
+        calamity.setStatus("ARCHIVED");
+        calamity.setArchivedAt(LocalDateTime.now());
+        calamity.setArchiveClearedAt(null);
+        Calamity saved = calamityRepository.save(calamity);
+
+        logArchiveHistory(saved.getId(), oldStatus, saved.getStatus(), "Calamity archived");
+
+        return mapToResponse(saved);
+    }
+
+    @Transactional
+    public CalamityResponse restoreCalamityRecord(long calamityId) {
+        Calamity calamity = calamityRepository.findById(calamityId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Calamity Id not found: " + calamityId));
+
+        if (!"ARCHIVED".equalsIgnoreCase(calamity.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only archived calamities can be restored");
+        }
+
+        String oldStatus = calamity.getStatus();
+        calamity.setStatus("RESOLVED");
+        calamity.setArchivedAt(null);
+        calamity.setArchiveClearedAt(null);
+        Calamity saved = calamityRepository.save(calamity);
+
+        logArchiveHistory(saved.getId(), oldStatus, saved.getStatus(), "Calamity restored from archive");
+
+        return mapToResponse(saved);
+    }
+
+    @Transactional
+    public CalamityResponse clearArchivedCalamity(long calamityId) {
+        Calamity calamity = calamityRepository.findById(calamityId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Calamity Id not found: " + calamityId));
+
+        if (!"ARCHIVED".equalsIgnoreCase(calamity.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only archived calamities can be cleared");
+        }
+
+        calamity.setArchiveClearedAt(LocalDateTime.now());
+        Calamity saved = calamityRepository.save(calamity);
+
+        logArchiveHistory(saved.getId(), saved.getStatus(), saved.getStatus(), "Archived calamity cleared from view");
+
+        return mapToResponse(saved);
+    }
+
+    @Transactional
+    public List<CalamityResponse> restoreAllArchivedCalamities() {
+        List<Calamity> archived = calamityRepository.findByStatusAndArchiveClearedAtIsNull("ARCHIVED");
+
+        List<Calamity> restored = archived.stream()
+                .map(calamity -> {
+                    String oldStatus = calamity.getStatus();
+                    calamity.setStatus("RESOLVED");
+                    calamity.setArchivedAt(null);
+                    calamity.setArchiveClearedAt(null);
+                    Calamity saved = calamityRepository.save(calamity);
+                    logArchiveHistory(saved.getId(), oldStatus, saved.getStatus(), "Calamity restored from archive (bulk)");
+                    return saved;
+                })
+                .toList();
+
+        return restored.stream().map(this::mapToResponse).toList();
+    }
+
+    @Transactional
+    public List<CalamityResponse> clearAllArchivedCalamities() {
+        List<Calamity> archived = calamityRepository.findByStatusAndArchiveClearedAtIsNull("ARCHIVED");
+
+        List<Calamity> cleared = archived.stream()
+                .map(calamity -> {
+                    calamity.setArchiveClearedAt(LocalDateTime.now());
+                    Calamity saved = calamityRepository.save(calamity);
+                    logArchiveHistory(saved.getId(), saved.getStatus(), saved.getStatus(), "Archived calamity cleared from view (bulk)");
+                    return saved;
+                })
+                .toList();
+
+        return cleared.stream().map(this::mapToResponse).toList();
+    }
+
+    private void logArchiveHistory(long calamityId, String oldStatus, String newStatus, String description) {
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
+        operationHistoryService.log(
+                "CALAMITY",
+                calamityId,
+                "STATUS_CHANGED",
+                oldStatus,
+                newStatus,
+                description,
+                null,
+                actor != null ? actor.getFullName() : null
+        );
     }
 
     private void notifyCoordinatorIfAssigned(Calamity calamity, String message) {
@@ -272,6 +406,36 @@ public class CalamityService {
         if (request != null && request.description() != null && !request.description().isBlank()) {
             calamity.setDescription(request.description().trim());
         }
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private String buildTransitionMetadata(String overrideReason, double actualCost) {
+        boolean hasOverrideReason = hasText(overrideReason);
+        if (!hasOverrideReason && actualCost <= 0) {
+            return null;
+        }
+
+        StringBuilder json = new StringBuilder("{");
+        boolean appended = false;
+        if (hasOverrideReason) {
+            json.append("\"overrideReason\":\"").append(escapeJson(overrideReason.trim())).append("\"");
+            appended = true;
+        }
+        if (actualCost > 0) {
+            if (appended) {
+                json.append(",");
+            }
+            json.append("\"actualCost\":").append(actualCost);
+        }
+        json.append("}");
+        return json.toString();
+    }
+
+    private String escapeJson(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     /**

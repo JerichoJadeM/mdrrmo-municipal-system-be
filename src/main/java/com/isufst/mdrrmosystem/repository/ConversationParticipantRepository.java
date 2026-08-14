@@ -12,4 +12,6 @@ public interface ConversationParticipantRepository extends JpaRepository<Convers
     List<ConversationParticipant> findByUser_Id(Long userId);
 
     List<ConversationParticipant> findByConversation_Id(Long conversationId);
+
+    void deleteByUser_Id(Long userId);
 }

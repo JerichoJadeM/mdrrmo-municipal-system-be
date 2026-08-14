@@ -3,6 +3,7 @@ package com.isufst.mdrrmosystem.repository;
 import com.isufst.mdrrmosystem.entity.Incident;
 import com.isufst.mdrrmosystem.entity.ResponseAction;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -15,6 +16,8 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
 
     List<Incident> findByStatus(String status);
 
+    List<Incident> findByStatusAndArchiveClearedAtIsNull(String status);
+
     @Query("""
         SELECT i.barangay.id, i.barangay.name, COUNT(i)
         FROM Incident i
@@ -24,6 +27,14 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
     List<Object[]>  incidentHeatmap();
 
     long countByBarangayIdAndStatus(long barangayId, String status);
+
+    @Modifying
+    @Query("update Incident i set i.assignedResponder = null where i.assignedResponder.id = :userId")
+    void detachAssignedResponder(@Param("userId") Long userId);
+
+    @Modifying
+    @Query("update Incident i set i.reportedBy = null where i.reportedBy.id = :userId")
+    void detachReportedBy(@Param("userId") Long userId);
 
     @Query("""
         SELECT COUNT(i)

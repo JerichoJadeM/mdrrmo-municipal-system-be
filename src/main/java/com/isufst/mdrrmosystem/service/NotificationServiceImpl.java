@@ -69,6 +69,9 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override @Transactional
     public void notifyUser(User recipient, String type, String title, String message, String referenceType, Long referenceId) {
+        if (recipient == null) {
+            return;
+        }
         Notification notification = new Notification();
         notification.setRecipient(recipient);
         notification.setType(normalize(type));

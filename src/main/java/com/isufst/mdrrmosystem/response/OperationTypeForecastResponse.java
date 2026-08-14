@@ -8,5 +8,6 @@ public record OperationTypeForecastResponse(
         double historicalAverageCost,
         double forecastAmount,
         double sharePercent,
-        String note
+        String note,
+        double actualCost
 ) { }

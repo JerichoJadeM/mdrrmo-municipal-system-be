@@ -7,6 +7,7 @@ import com.isufst.mdrrmosystem.entity.User;
 import com.isufst.mdrrmosystem.repository.*;
 import com.isufst.mdrrmosystem.request.DispatchIncidentRequest;
 import com.isufst.mdrrmosystem.request.IncidentRequest;
+import com.isufst.mdrrmosystem.request.IncidentTransitionRequest;
 import com.isufst.mdrrmosystem.response.IncidentResponse;
 import com.isufst.mdrrmosystem.response.ResponseActionResponse;
 import com.isufst.mdrrmosystem.response.WarningItem;
@@ -34,6 +35,7 @@ public class IncidentService {
     private final OperationHistoryService operationHistoryService;
     private final NotificationService notificationService;
     private final OperationApprovalGuard operationApprovalGuard;
+    private final OperationResourceUsageService operationResourceUsageService;
 
     public IncidentService(IncidentRepository incidentRepository,
                            FindAuthenticatedUser findAuthenticatedUser,
@@ -44,7 +46,8 @@ public class IncidentService {
                            ReliefDistributionRepository reliefDistributionRepository,
                            OperationHistoryService operationHistoryService,
                            NotificationService notificationService,
-                           OperationApprovalGuard operationApprovalGuard) {
+                           OperationApprovalGuard operationApprovalGuard,
+                           OperationResourceUsageService operationResourceUsageService) {
         this.incidentRepository = incidentRepository;
         this.findAuthenticatedUser = findAuthenticatedUser;
         this.userRepository = userRepository;
@@ -55,6 +58,7 @@ public class IncidentService {
         this.operationHistoryService = operationHistoryService;
         this.notificationService = notificationService;
         this.operationApprovalGuard = operationApprovalGuard;
+        this.operationResourceUsageService = operationResourceUsageService;
     }
 
     @Transactional
@@ -140,7 +144,7 @@ public class IncidentService {
     }
 
     @Transactional
-    public IncidentResponse resolveIncident(long id) {
+    public IncidentResponse resolveIncident(long id, IncidentTransitionRequest request) {
         Incident incident = incidentRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
 
@@ -170,7 +174,9 @@ public class IncidentService {
 
         ResponseAction action = new ResponseAction();
         action.setActionType("RESOLVE");
-        action.setDescription("Incident marked as resolved.");
+        action.setDescription(hasText(request != null ? request.description() : null)
+                ? request.description().trim()
+                : "Incident marked as resolved.");
         action.setActionTime(LocalDateTime.now());
         action.setIncident(incident);
 
@@ -180,6 +186,10 @@ public class IncidentService {
 
         responseActionRepository.save(action);
 
+        double actualCost = operationResourceUsageService.recordUsage(
+                "INCIDENT", savedIncident.getId(), "RESOLVE",
+                request != null ? request.selectedResources() : null, actor);
+
         operationHistoryService.log(
                 "INCIDENT",
                 savedIncident.getId(),
@@ -187,8 +197,8 @@ public class IncidentService {
                 oldStatus,
                 savedIncident.getStatus(),
                 "Incident moved to RESOLVED",
-                null,
-                null
+                buildTransitionMetadata(request != null ? request.overrideReason() : null, actualCost),
+                actor != null ? actor.getFullName() : null
         );
 
         releaseResponderIfNoOtherActiveIncidents(responderToRelease, incident.getId());
@@ -228,11 +238,17 @@ public class IncidentService {
 
         ResponseAction action = new ResponseAction();
         action.setActionType("DISPATCH");
-        action.setDescription("Responder " + responder.getFirstName() + " " + responder.getLastName() + " dispatched to scene");
+        action.setDescription(hasText(request.description())
+                ? request.description().trim()
+                : "Responder " + responder.getFirstName() + " " + responder.getLastName() + " dispatched to scene");
         action.setActionTime(LocalDateTime.now());
         action.setIncident(incident);
         action.setResponder(responder);
         responseActionRepository.save(action);
+
+        User dispatchActor = findAuthenticatedUser.getAuthenticatedUser();
+        double actualCost = operationResourceUsageService.recordUsage(
+                "INCIDENT", savedIncident.getId(), "DISPATCH", request.selectedResources(), dispatchActor);
 
         operationHistoryService.log(
                 "INCIDENT",
@@ -241,8 +257,8 @@ public class IncidentService {
                 oldStatus,
                 savedIncident.getStatus(),
                 "Incident moved to IN_PROGRESS",
-                null,
-                null
+                buildTransitionMetadata(request.overrideReason(), actualCost),
+                dispatchActor != null ? dispatchActor.getFullName() : null
         );
 
         notifyResponderIfAssigned(savedIncident, "You were dispatched to incident " + savedIncident.getType());
@@ -251,7 +267,7 @@ public class IncidentService {
     }
 
     @Transactional
-    public IncidentResponse markResponderArrived(long incidentId) {
+    public IncidentResponse markResponderArrived(long incidentId, IncidentTransitionRequest request) {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
 
@@ -281,15 +297,21 @@ public class IncidentService {
 
         ResponseAction action = new ResponseAction();
         action.setActionType("ARRIVAL");
-        action.setDescription("Responder "
-                + incident.getAssignedResponder().getFirstName() + " "
-                + incident.getAssignedResponder().getLastName()
-                + " arrived on site.");
+        action.setDescription(hasText(request != null ? request.description() : null)
+                ? request.description().trim()
+                : "Responder "
+                        + incident.getAssignedResponder().getFirstName() + " "
+                        + incident.getAssignedResponder().getLastName()
+                        + " arrived on site.");
         action.setActionTime(LocalDateTime.now());
         action.setIncident(incident);
         action.setResponder(incident.getAssignedResponder());
 
         responseActionRepository.save(action);
+
+        double actualCost = operationResourceUsageService.recordUsage(
+                "INCIDENT", savedIncident.getId(), "ARRIVE",
+                request != null ? request.selectedResources() : null, actor);
 
         operationHistoryService.log(
                 "INCIDENT",
@@ -298,11 +320,125 @@ public class IncidentService {
                 oldStatus,
                 savedIncident.getStatus(),
                 "Incident moved to ON_SITE",
-                null,
-                null
+                buildTransitionMetadata(request != null ? request.overrideReason() : null, actualCost),
+                actor != null ? actor.getFullName() : null
         );
 
         return mapToResponse(savedIncident);
+    }
+
+    @Transactional(readOnly = true)
+    public List<IncidentResponse> getArchivedIncidents() {
+        return incidentRepository.findByStatusAndArchiveClearedAtIsNull("ARCHIVED")
+                .stream()
+                .map(this::mapToResponse)
+                .toList();
+    }
+
+    @Transactional
+    public IncidentResponse archiveIncident(long id) {
+        Incident incident = incidentRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
+
+        if (!"RESOLVED".equalsIgnoreCase(incident.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only resolved incidents can be archived");
+        }
+
+        String oldStatus = incident.getStatus();
+        incident.setStatus("ARCHIVED");
+        incident.setArchivedAt(LocalDateTime.now());
+        incident.setArchiveClearedAt(null);
+        Incident saved = incidentRepository.save(incident);
+
+        logArchiveHistory(saved.getId(), oldStatus, saved.getStatus(), "Incident archived");
+
+        return mapToResponse(saved);
+    }
+
+    @Transactional
+    public IncidentResponse restoreIncident(long id) {
+        Incident incident = incidentRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
+
+        if (!"ARCHIVED".equalsIgnoreCase(incident.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only archived incidents can be restored");
+        }
+
+        String oldStatus = incident.getStatus();
+        incident.setStatus("RESOLVED");
+        incident.setArchivedAt(null);
+        incident.setArchiveClearedAt(null);
+        Incident saved = incidentRepository.save(incident);
+
+        logArchiveHistory(saved.getId(), oldStatus, saved.getStatus(), "Incident restored from archive");
+
+        return mapToResponse(saved);
+    }
+
+    @Transactional
+    public IncidentResponse clearArchivedIncident(long id) {
+        Incident incident = incidentRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
+
+        if (!"ARCHIVED".equalsIgnoreCase(incident.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only archived incidents can be cleared");
+        }
+
+        incident.setArchiveClearedAt(LocalDateTime.now());
+        Incident saved = incidentRepository.save(incident);
+
+        logArchiveHistory(saved.getId(), saved.getStatus(), saved.getStatus(), "Archived incident cleared from view");
+
+        return mapToResponse(saved);
+    }
+
+    @Transactional
+    public List<IncidentResponse> restoreAllArchivedIncidents() {
+        List<Incident> archived = incidentRepository.findByStatusAndArchiveClearedAtIsNull("ARCHIVED");
+
+        List<Incident> restored = archived.stream()
+                .map(incident -> {
+                    String oldStatus = incident.getStatus();
+                    incident.setStatus("RESOLVED");
+                    incident.setArchivedAt(null);
+                    incident.setArchiveClearedAt(null);
+                    Incident saved = incidentRepository.save(incident);
+                    logArchiveHistory(saved.getId(), oldStatus, saved.getStatus(), "Incident restored from archive (bulk)");
+                    return saved;
+                })
+                .toList();
+
+        return restored.stream().map(this::mapToResponse).toList();
+    }
+
+    @Transactional
+    public List<IncidentResponse> clearAllArchivedIncidents() {
+        List<Incident> archived = incidentRepository.findByStatusAndArchiveClearedAtIsNull("ARCHIVED");
+
+        List<Incident> cleared = archived.stream()
+                .map(incident -> {
+                    incident.setArchiveClearedAt(LocalDateTime.now());
+                    Incident saved = incidentRepository.save(incident);
+                    logArchiveHistory(saved.getId(), saved.getStatus(), saved.getStatus(), "Archived incident cleared from view (bulk)");
+                    return saved;
+                })
+                .toList();
+
+        return cleared.stream().map(this::mapToResponse).toList();
+    }
+
+    private void logArchiveHistory(long incidentId, String oldStatus, String newStatus, String description) {
+        User actor = findAuthenticatedUser.getAuthenticatedUser();
+        operationHistoryService.log(
+                "INCIDENT",
+                incidentId,
+                "STATUS_CHANGED",
+                oldStatus,
+                newStatus,
+                description,
+                null,
+                actor != null ? actor.getFullName() : null
+        );
     }
 
     private void validateBatadBarangay(Barangay barangay) {
@@ -520,6 +656,36 @@ public class IncidentService {
         if (left == null && right == null) return true;
         if (left == null || right == null) return false;
         return left.getId() != null && left.getId().equals(right.getId());
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private String buildTransitionMetadata(String overrideReason, double actualCost) {
+        boolean hasOverrideReason = hasText(overrideReason);
+        if (!hasOverrideReason && actualCost <= 0) {
+            return null;
+        }
+
+        StringBuilder json = new StringBuilder("{");
+        boolean appended = false;
+        if (hasOverrideReason) {
+            json.append("\"overrideReason\":\"").append(escapeJson(overrideReason.trim())).append("\"");
+            appended = true;
+        }
+        if (actualCost > 0) {
+            if (appended) {
+                json.append(",");
+            }
+            json.append("\"actualCost\":").append(actualCost);
+        }
+        json.append("}");
+        return json.toString();
+    }
+
+    private String escapeJson(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private void logResponseAction(Incident incident, User responder, String actionType, String description) {
