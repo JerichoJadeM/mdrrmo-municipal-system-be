@@ -16,6 +16,7 @@ public record CalamityResponse(
         String primaryBarangayName,
         List<String> affectedBarangayNames,
         List<Long> affectedBarangayIds,
+        String affectedBarangayDisplay,
         String severity,
         LocalDate date,
         BigDecimal damageCost,
