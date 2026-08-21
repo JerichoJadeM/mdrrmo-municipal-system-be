@@ -395,7 +395,9 @@ public class BudgetService {
                 rows.stream()
                         .sorted(Comparator.comparing(BudgetForecastCategoryResponse::section)
                                 .thenComparing(BudgetForecastCategoryResponse::category))
-                        .toList()
+                        .toList(), null, null
+
+
         );
     }
 

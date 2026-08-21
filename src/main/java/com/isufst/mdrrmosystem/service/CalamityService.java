@@ -21,7 +21,10 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class CalamityService {
@@ -466,7 +469,26 @@ public class CalamityService {
         calamity.setCasualties(calamityRequest.casualties());
         calamity.setDescription(calamityRequest.description().trim());
 
-        // keep your existing affected area logic below this
+        Barangay primaryBarangay = null;
+        if (calamityRequest.barangayId() != null) {
+            primaryBarangay = barangayRepository.findById(calamityRequest.barangayId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Barangay id not found"));
+            validateBatadBarangay(primaryBarangay);
+        }
+        calamity.setBarangay(primaryBarangay);
+
+        List<Long> barangayIds = calamityRequest.barangayIds();
+        if (barangayIds == null || barangayIds.isEmpty()) {
+            replaceAffectedBarangays(calamity, List.of());
+        } else {
+            List<Barangay> affectedBarangays = barangayRepository.findAllById(barangayIds);
+            Set<Long> requestedIds = new HashSet<>(barangayIds);
+            if (affectedBarangays.size() != requestedIds.size()) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "One or more affected barangay ids not found");
+            }
+            affectedBarangays.forEach(this::validateBatadBarangay);
+            replaceAffectedBarangays(calamity, affectedBarangays);
+        }
     }
 
     // helper method for mapToRequestEntity
@@ -516,6 +538,8 @@ public class CalamityService {
         List<Long> affectedBarangayIds = calamity.getAffectedBarangays() != null
                 ? calamity.getAffectedBarangays().stream().map(Barangay::getId).toList()
                 : List.of();
+        String affectedBarangayDisplay = affectedBarangayNames.stream()
+            .collect(Collectors.joining(", "));
 
         return new CalamityResponse(
                 calamity.getId(),
@@ -527,6 +551,7 @@ public class CalamityService {
                 calamity.getBarangay() != null ? calamity.getBarangay().getName() : null,
                 affectedBarangayNames,
                 affectedBarangayIds,
+                affectedBarangayDisplay,
                 calamity.getSeverity(),
                 calamity.getDate(),
                 calamity.getDamageCost(),
