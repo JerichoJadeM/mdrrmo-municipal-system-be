@@ -1,5 +1,6 @@
 package com.isufst.mdrrmosystem.entity;
 
+import com.isufst.mdrrmosystem.security.EncryptedDoubleConverter;
 import jakarta.persistence.*;
 
 import java.time.LocalDate;
@@ -17,6 +18,7 @@ public class Budget {
     @Column(nullable = false, name = "year")
     private  int year;
 
+    @Convert(converter = EncryptedDoubleConverter.class)
     @Column(nullable = false, name = "total_amount")
     private double totalAmount;
 
