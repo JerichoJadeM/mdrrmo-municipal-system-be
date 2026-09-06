@@ -6,6 +6,8 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.util.List;
+
 public record IncidentRequest(
         @NotBlank(message = "Type is required")
         String type,
@@ -19,6 +21,6 @@ public record IncidentRequest(
         @NotBlank(message = "Description is required")
         String description,
 
-        Long assignedResponderId
+        List<Long> assignedResponderIds
 ) {
 }

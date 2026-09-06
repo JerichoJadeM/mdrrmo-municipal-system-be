@@ -3,6 +3,7 @@ package com.isufst.mdrrmosystem.response;
 import com.isufst.mdrrmosystem.entity.Barangay;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public record IncidentResponse(
         long id,
@@ -13,6 +14,6 @@ public record IncidentResponse(
         String status,
         LocalDateTime reportedAt,
         String description,
-        Long assignedResponderId,
-        String assignedResponderName
+        List<Long> assignedResponderIds,
+        List<String> assignedResponderNames
 ) { }

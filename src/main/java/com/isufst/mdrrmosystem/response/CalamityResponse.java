@@ -22,6 +22,6 @@ public record CalamityResponse(
         BigDecimal damageCost,
         Integer casualties,
         String description,
-        Long coordinatorId,
-        String coordinatorName
+        List<Long> coordinatorIds,
+        List<String> coordinatorNames
 ) { }

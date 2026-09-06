@@ -29,7 +29,7 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
     long countByBarangayIdAndStatus(long barangayId, String status);
 
     @Modifying
-    @Query("update Incident i set i.assignedResponder = null where i.assignedResponder.id = :userId")
+    @Query(value = "delete from incident_assigned_responders where user_id = :userId", nativeQuery = true)
     void detachAssignedResponder(@Param("userId") Long userId);
 
     @Modifying
@@ -68,7 +68,8 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
     @Query("""
         select count(i)
         from Incident i
-        where i.assignedResponder.id = :responderId
+        join i.assignedResponders r
+        where r.id = :responderId
           and upper(i.status) in ('ONGOING', 'IN_PROGRESS', 'ON_SITE')
     """)
     long countActiveAssignmentsByResponderId(@Param("responderId") Long responderId);
@@ -76,7 +77,8 @@ public interface IncidentRepository extends JpaRepository<Incident, Long> {
     @Query("""
         select count(i)
         from Incident i
-        where i.assignedResponder.id = :responderId
+        join i.assignedResponders r
+        where r.id = :responderId
           and i.id <> :incidentId
           and upper(i.status) in ('ONGOING', 'IN_PROGRESS', 'ON_SITE')
     """)
