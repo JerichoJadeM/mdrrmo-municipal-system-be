@@ -3,6 +3,8 @@ package com.isufst.mdrrmosystem.entity;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "incidents")
@@ -31,9 +33,13 @@ public class Incident {
     @Column(length = 1000)
     private String description;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "assigned_responder_id")
-    private User assignedResponder;
+    @ManyToMany
+    @JoinTable(
+            name = "incident_assigned_responders",
+            joinColumns = @JoinColumn(name = "incident_id"),
+            inverseJoinColumns = @JoinColumn(name = "user_id")
+    )
+    private List<User> assignedResponders = new ArrayList<>();
 
     @ManyToOne
     @JoinColumn(name = "reported_by")
@@ -112,12 +118,12 @@ public class Incident {
         this.description = description;
     }
 
-    public User getAssignedResponder() {
-        return assignedResponder;
+    public List<User> getAssignedResponders() {
+        return assignedResponders;
     }
 
-    public void setAssignedResponder(User assignedResponder) {
-        this.assignedResponder = assignedResponder;
+    public void setAssignedResponders(List<User> assignedResponders) {
+        this.assignedResponders = assignedResponders;
     }
 
     public User getReportedBy() {

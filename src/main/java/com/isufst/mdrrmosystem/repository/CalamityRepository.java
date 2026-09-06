@@ -48,6 +48,6 @@ public interface CalamityRepository extends JpaRepository<Calamity, Long> {
                                       @Param("toDate") LocalDate toDate);
 
     @Modifying
-    @Query("update Calamity c set c.coordinator = null where c.coordinator.id = :userId")
+    @Query(value = "delete from calamity_coordinators where user_id = :userId", nativeQuery = true)
     void detachCoordinator(@Param("userId") Long userId);
 }

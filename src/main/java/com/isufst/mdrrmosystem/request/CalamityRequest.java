@@ -21,7 +21,7 @@ public record CalamityRequest (
 
         List<Long> barangayIds,
 
-        Long coordinatorId,
+        List<Long> coordinatorIds,
 
         @NotBlank(message = "Severity is required")
         String severity,

@@ -38,7 +38,7 @@ public class ResponseActionService {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
 
-        if (incident.getAssignedResponder() == null) {
+        if (incident.getAssignedResponders() == null || incident.getAssignedResponders().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Cannot add a response action because this incident has no assigned responder.");
         }
@@ -48,17 +48,24 @@ public class ResponseActionService {
                     "Cannot add a response action to a resolved incident.");
         }
 
-        User assignedResponder = incident.getAssignedResponder();
         User actor = findAuthenticatedUser.getAuthenticatedUser();
 
+        boolean actorIsAssignedResponder = actor != null && incident.getAssignedResponders().stream()
+                .anyMatch(responder -> responder.getId().equals(actor.getId()));
+
+        // Prefer the actor when they are one of the assigned responders (accurate audit trail);
+        // otherwise fall back to the first assigned responder as the source of truth.
+        User assignedResponder = actorIsAssignedResponder
+                ? actor
+                : incident.getAssignedResponders().get(0);
+
         // 🔒 Permission check (recommended)
-        boolean isAssignedResponder = actor != null && actor.getId().equals(assignedResponder.getId());
         boolean isPrivileged = actor != null &&
                 actor.getAuthorities().stream()
                         .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN")
                                 || a.getAuthority().equals("ROLE_MANAGER"));
 
-        if (!isAssignedResponder && !isPrivileged) {
+        if (!actorIsAssignedResponder && !isPrivileged) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "You are not allowed to log this response action.");
         }

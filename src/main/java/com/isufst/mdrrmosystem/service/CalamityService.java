@@ -65,7 +65,8 @@ public class CalamityService {
 
         Calamity savedCalamity = calamityRepository.save(calamity);
 
-        notifyCoordinatorIfAssigned(savedCalamity, "assigned as coordinator for calamity " + savedCalamity.getType());
+        notifyCoordinatorsIfAssigned(savedCalamity, savedCalamity.getCoordinators(),
+                "assigned as coordinator for calamity " + savedCalamity.getType());
         notifyAllUsersIfHighOrCritical(savedCalamity, "Calamity marked HIGH/CRITICAL: " + savedCalamity.getType());
 
         return mapToResponse(savedCalamity);
@@ -78,17 +79,22 @@ public class CalamityService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Calamity Id not found: " + calamityId));
 
-        Long oldCoordinatorId = existingCalamity.getCoordinator() != null ? existingCalamity.getCoordinator().getId() : null;
+        Set<Long> oldCoordinatorIds = existingCalamity.getCoordinators() == null
+                ? Set.of()
+                : existingCalamity.getCoordinators().stream().map(User::getId).collect(Collectors.toSet());
         String oldSeverity = existingCalamity.getSeverity();
 
         mapRequestToEntity(existingCalamity, calamityRequest);
 
         Calamity updatedCalamity = calamityRepository.save(existingCalamity);
 
-        Long newCoordinatorId = updatedCalamity.getCoordinator() != null ? updatedCalamity.getCoordinator().getId() : null;
-        if (newCoordinatorId != null && !newCoordinatorId.equals(oldCoordinatorId)) {
-            notifyCoordinatorIfAssigned(updatedCalamity, "assigned as coordinator for calamity " + updatedCalamity.getType());
-        }
+        List<User> newlyAssignedCoordinators = updatedCalamity.getCoordinators() == null
+                ? List.of()
+                : updatedCalamity.getCoordinators().stream()
+                        .filter(coordinator -> !oldCoordinatorIds.contains(coordinator.getId()))
+                        .toList();
+        notifyCoordinatorsIfAssigned(updatedCalamity, newlyAssignedCoordinators,
+                "assigned as coordinator for calamity " + updatedCalamity.getType());
 
         if (isSeverityEscalatedToHighOrCritical(oldSeverity, updatedCalamity.getSeverity())) {
             notifyAllUsersIfHighOrCritical(updatedCalamity, "Calamity escalated to HIGH/CRITICAL: " + updatedCalamity.getType());
@@ -348,19 +354,21 @@ public class CalamityService {
         );
     }
 
-    private void notifyCoordinatorIfAssigned(Calamity calamity, String message) {
-        if (calamity.getCoordinator() == null) {
+    private void notifyCoordinatorsIfAssigned(Calamity calamity, List<User> coordinators, String message) {
+        if (coordinators == null || coordinators.isEmpty()) {
             return;
         }
 
-        notificationService.notifyUser(
-                calamity.getCoordinator(),
-                "ASSIGNMENT",
-                "Calamity Coordinator Assignment",
-                message,
-                "CALAMITY",
-                calamity.getId()
-        );
+        for (User coordinator : coordinators) {
+            notificationService.notifyUser(
+                    coordinator,
+                    "ASSIGNMENT",
+                    "Calamity Coordinator Assignment",
+                    message,
+                    "CALAMITY",
+                    calamity.getId()
+            );
+        }
     }
 
     private void notifyAllUsersIfHighOrCritical(Calamity calamity, String message) {
@@ -446,15 +454,6 @@ public class CalamityService {
      * This ensures validations are consistent across the system.
      */
     private void mapRequestToEntity(Calamity calamity, CalamityRequest calamityRequest) {
-        User coordinator = null;
-        if (calamityRequest.coordinatorId() != null) {
-            coordinator = userRepository.findById(calamityRequest.coordinatorId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                            "Coordinator id not found"));
-
-            validateCoordinatorAssignable(coordinator);
-        }
-
         String affectedAreaType = calamityRequest.affectedAreaType().trim().toUpperCase();
 
         calamity.setType(calamityRequest.type().trim());
@@ -462,7 +461,6 @@ public class CalamityService {
                 ? calamityRequest.eventName().trim()
                 : null);
         calamity.setAffectedAreaTypes(affectedAreaType);
-        calamity.setCoordinator(coordinator);
         calamity.setSeverity(calamityRequest.severity().trim().toUpperCase());
         calamity.setDate(calamityRequest.date());
         calamity.setDamageCost(calamityRequest.damageCost());
@@ -489,6 +487,19 @@ public class CalamityService {
             affectedBarangays.forEach(this::validateBatadBarangay);
             replaceAffectedBarangays(calamity, affectedBarangays);
         }
+
+        List<Long> coordinatorIds = calamityRequest.coordinatorIds();
+        if (coordinatorIds == null || coordinatorIds.isEmpty()) {
+            replaceCoordinators(calamity, List.of());
+        } else {
+            List<User> coordinators = userRepository.findAllById(coordinatorIds);
+            Set<Long> requestedCoordinatorIds = new HashSet<>(coordinatorIds);
+            if (coordinators.size() != requestedCoordinatorIds.size()) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "One or more coordinator ids not found");
+            }
+            coordinators.forEach(this::validateCoordinatorAssignable);
+            replaceCoordinators(calamity, coordinators);
+        }
     }
 
     // helper method for mapToRequestEntity
@@ -500,6 +511,17 @@ public class CalamityService {
        }
 
        calamity.getAffectedBarangays().addAll(barangays);
+    }
+
+    // helper method for mapToRequestEntity
+    private void replaceCoordinators(Calamity calamity, List<User> coordinators) {
+        if (calamity.getCoordinators() == null) {
+            calamity.setCoordinators(new ArrayList<>());
+        } else {
+            calamity.getCoordinators().clear();
+        }
+
+        calamity.getCoordinators().addAll(coordinators);
     }
 
     // --- Utility Methods ---
@@ -541,6 +563,13 @@ public class CalamityService {
         String affectedBarangayDisplay = affectedBarangayNames.stream()
             .collect(Collectors.joining(", "));
 
+        List<Long> coordinatorIds = calamity.getCoordinators() != null
+                ? calamity.getCoordinators().stream().map(User::getId).toList()
+                : List.of();
+        List<String> coordinatorNames = calamity.getCoordinators() != null
+                ? calamity.getCoordinators().stream().map(User::getFullName).toList()
+                : List.of();
+
         return new CalamityResponse(
                 calamity.getId(),
                 calamity.getType(),
@@ -557,8 +586,8 @@ public class CalamityService {
                 calamity.getDamageCost(),
                 calamity.getCasualties(),
                 calamity.getDescription(),
-                calamity.getCoordinator() != null ? calamity.getCoordinator().getId() : null,
-                calamity.getCoordinator() != null ? calamity.getCoordinator().getFullName() : null
+                coordinatorIds,
+                coordinatorNames
         );
     }
 

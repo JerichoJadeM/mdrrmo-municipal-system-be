@@ -54,9 +54,13 @@ public class Calamity {
     @Column(nullable = false)
     private int casualties;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "coordinator_id")
-    private User coordinator;
+    @ManyToMany
+    @JoinTable(
+            name = "calamity_coordinators",
+            joinColumns = @JoinColumn(name = "calamity_id"),
+            inverseJoinColumns = @JoinColumn(name = "user_id")
+    )
+    private List<User> coordinators = new ArrayList<>();
 
     @Column(length = 1000, nullable = false)
     private String description;
@@ -144,12 +148,12 @@ public class Calamity {
         this.casualties = casualties;
     }
 
-    public User getCoordinator() {
-        return coordinator;
+    public List<User> getCoordinators() {
+        return coordinators;
     }
 
-    public void setCoordinator(User coordinator) {
-        this.coordinator = coordinator;
+    public void setCoordinators(List<User> coordinators) {
+        this.coordinators = coordinators;
     }
 
     public String getDescription() {

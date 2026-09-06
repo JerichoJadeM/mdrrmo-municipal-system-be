@@ -20,7 +20,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class IncidentService {
@@ -68,17 +72,13 @@ public class IncidentService {
 
         validateBatadBarangay(barangay);
 
-        User assignedResponder = null;
-        if (incidentRequest.assignedResponderId() != null) {
-            assignedResponder = userRepository.findById(incidentRequest.assignedResponderId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Assigned responder id not found"));
-            validateResponderAssignable(assignedResponder);
-        }
+        List<User> assignedResponders = resolveResponders(incidentRequest.assignedResponderIds());
+        assignedResponders.forEach(this::validateResponderAssignable);
 
         Incident incident = new Incident();
         incident.setType(incidentRequest.type().trim());
         incident.setBarangay(barangay);
-        incident.setAssignedResponder(assignedResponder);
+        replaceAssignedResponders(incident, assignedResponders);
         incident.setSeverity(incidentRequest.severity().trim().toUpperCase());
         incident.setStatus("ONGOING");
         incident.setReportedAt(LocalDateTime.now());
@@ -87,19 +87,11 @@ public class IncidentService {
 
         Incident savedIncident = incidentRepository.save(incident);
 
-        if (assignedResponder != null) {
-            markResponderBusy(assignedResponder);
-
-            ResponseAction action = new ResponseAction();
-            action.setActionType("ASSIGN");
-            action.setDescription("Responder "
-                    + assignedResponder.getFirstName() + " "
-                    + assignedResponder.getLastName()
-                    + " assigned during incident creation.");
-            action.setActionTime(LocalDateTime.now());
-            action.setIncident(savedIncident);
-            action.setResponder(assignedResponder);
-            responseActionRepository.save(action);
+        for (User responder : assignedResponders) {
+            markResponderBusy(responder);
+            logResponseAction(savedIncident, responder, "ASSIGN",
+                    "Responder " + responder.getFirstName() + " " + responder.getLastName()
+                            + " assigned during incident creation.");
         }
 
         operationHistoryService.log(
@@ -113,7 +105,7 @@ public class IncidentService {
                 null
         );
 
-        notifyResponderIfAssigned(savedIncident, "You were assigned as responder for incident " + savedIncident.getType());
+        notifyRespondersIfAssigned(savedIncident, assignedResponders, "You were assigned as responder for incident " + savedIncident.getType());
         notifyAllUsersIfHighOrCritical(savedIncident, "Incident marked HIGH/CRITICAL: " + savedIncident.getType());
 
         return mapToResponse(savedIncident);
@@ -166,7 +158,7 @@ public class IncidentService {
                 buildIncidentWarnings(incident)
         );
 
-        User responderToRelease = incident.getAssignedResponder();
+        List<User> respondersToRelease = new ArrayList<>(incident.getAssignedResponders());
 
         String oldStatus = incident.getStatus();
         incident.setStatus("RESOLVED");
@@ -180,8 +172,8 @@ public class IncidentService {
         action.setActionTime(LocalDateTime.now());
         action.setIncident(incident);
 
-        if (responderToRelease != null) {
-            action.setResponder(responderToRelease);
+        if (!respondersToRelease.isEmpty()) {
+            action.setResponder(respondersToRelease.get(0));
         }
 
         responseActionRepository.save(action);
@@ -201,7 +193,7 @@ public class IncidentService {
                 actor != null ? actor.getFullName() : null
         );
 
-        releaseResponderIfNoOtherActiveIncidents(responderToRelease, incident.getId());
+        respondersToRelease.forEach(responder -> releaseResponderIfNoOtherActiveIncidents(responder, incident.getId()));
 
         return mapToResponse(savedIncident);
     }
@@ -211,8 +203,6 @@ public class IncidentService {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
 
-        User previousResponder = incident.getAssignedResponder();
-
         User responder = userRepository.findById(request.responderId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Responder not found"));
 
@@ -220,21 +210,19 @@ public class IncidentService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Resolved incident cannot be dispatched");
         }
 
-        if (!isSameResponder(previousResponder, responder)) {
+        boolean alreadyAssigned = incident.getAssignedResponders().stream()
+                .anyMatch(existing -> isSameResponder(existing, responder));
+
+        if (!alreadyAssigned) {
             validateResponderAssignable(responder);
+            incident.getAssignedResponders().add(responder);
         }
 
-        incident.setAssignedResponder(responder);
         String oldStatus = incident.getStatus();
         incident.setStatus("IN_PROGRESS");
         Incident savedIncident = incidentRepository.save(incident);
 
-        if (!isSameResponder(previousResponder, responder)) {
-            markResponderBusy(responder);
-            releaseResponderIfNoOtherActiveIncidents(previousResponder, incident.getId());
-        } else if (responder != null) {
-            markResponderBusy(responder);
-        }
+        markResponderBusy(responder);
 
         ResponseAction action = new ResponseAction();
         action.setActionType("DISPATCH");
@@ -261,7 +249,7 @@ public class IncidentService {
                 dispatchActor != null ? dispatchActor.getFullName() : null
         );
 
-        notifyResponderIfAssigned(savedIncident, "You were dispatched to incident " + savedIncident.getType());
+        notifyRespondersIfAssigned(savedIncident, List.of(responder), "You were dispatched to incident " + savedIncident.getType());
 
         return mapToResponse(savedIncident);
     }
@@ -279,7 +267,7 @@ public class IncidentService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only dispatched incidents can be marked as on-site");
         }
 
-        if (incident.getAssignedResponder() == null) {
+        if (incident.getAssignedResponders() == null || incident.getAssignedResponders().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No responder assigned to this incident");
         }
 
@@ -295,17 +283,18 @@ public class IncidentService {
         incident.setStatus("ON_SITE");
         Incident savedIncident = incidentRepository.save(incident);
 
+        String responderNames = incident.getAssignedResponders().stream()
+                .map(responder -> responder.getFirstName() + " " + responder.getLastName())
+                .collect(Collectors.joining(", "));
+
         ResponseAction action = new ResponseAction();
         action.setActionType("ARRIVAL");
         action.setDescription(hasText(request != null ? request.description() : null)
                 ? request.description().trim()
-                : "Responder "
-                        + incident.getAssignedResponder().getFirstName() + " "
-                        + incident.getAssignedResponder().getLastName()
-                        + " arrived on site.");
+                : "Responder(s) " + responderNames + " arrived on site.");
         action.setActionTime(LocalDateTime.now());
         action.setIncident(incident);
-        action.setResponder(incident.getAssignedResponder());
+        action.setResponder(incident.getAssignedResponders().get(0));
 
         responseActionRepository.save(action);
 
@@ -462,6 +451,13 @@ public class IncidentService {
     }
 
     private IncidentResponse mapToResponse(Incident incident) {
+        List<Long> assignedResponderIds = incident.getAssignedResponders() != null
+                ? incident.getAssignedResponders().stream().map(User::getId).toList()
+                : List.of();
+        List<String> assignedResponderNames = incident.getAssignedResponders() != null
+                ? incident.getAssignedResponders().stream().map(User::getFullName).toList()
+                : List.of();
+
         return new IncidentResponse(
                 incident.getId(),
                 incident.getType(),
@@ -471,9 +467,33 @@ public class IncidentService {
                 incident.getStatus(),
                 incident.getReportedAt(),
                 incident.getDescription(),
-                incident.getAssignedResponder() != null ? incident.getAssignedResponder().getId() : null,
-                incident.getAssignedResponder() != null ? incident.getAssignedResponder().getFullName() : null
+                assignedResponderIds,
+                assignedResponderNames
         );
+    }
+
+    private List<User> resolveResponders(List<Long> responderIds) {
+        if (responderIds == null || responderIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<User> responders = userRepository.findAllById(responderIds);
+        Set<Long> requestedIds = new HashSet<>(responderIds);
+        if (responders.size() != requestedIds.size()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "One or more assigned responder ids not found");
+        }
+        return responders;
+    }
+
+    // helper method mirroring the multi-barangay replace-collection pattern
+    private void replaceAssignedResponders(Incident incident, List<User> responders) {
+        if (incident.getAssignedResponders() == null) {
+            incident.setAssignedResponders(new ArrayList<>());
+        } else {
+            incident.getAssignedResponders().clear();
+        }
+
+        incident.getAssignedResponders().addAll(responders);
     }
 
 //  @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
@@ -482,8 +502,12 @@ public class IncidentService {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
 
-        User oldResponder = incident.getAssignedResponder();
-        Long oldResponderId = oldResponder != null ? oldResponder.getId() : null;
+        Set<Long> oldResponderIds = incident.getAssignedResponders() == null
+                ? Set.of()
+                : incident.getAssignedResponders().stream().map(User::getId).collect(Collectors.toSet());
+        List<User> oldResponders = incident.getAssignedResponders() == null
+                ? List.of()
+                : new ArrayList<>(incident.getAssignedResponders());
         String oldSeverity = incident.getSeverity();
 
         Barangay barangay = null;
@@ -493,19 +517,14 @@ public class IncidentService {
             validateBatadBarangay(barangay);
         }
 
-        User assignedResponder = null;
-        if (incidentRequest.assignedResponderId() != null) {
-            assignedResponder = userRepository.findById(incidentRequest.assignedResponderId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Assigned responder not found"));
-
-            if (oldResponderId == null || !oldResponderId.equals(assignedResponder.getId())) {
-                validateResponderAssignable(assignedResponder);
-            }
-        }
+        List<User> newResponders = resolveResponders(incidentRequest.assignedResponderIds());
+        newResponders.stream()
+                .filter(responder -> !oldResponderIds.contains(responder.getId()))
+                .forEach(this::validateResponderAssignable);
 
         incident.setType(incidentRequest.type().trim());
         incident.setBarangay(barangay);
-        incident.setAssignedResponder(assignedResponder);
+        replaceAssignedResponders(incident, newResponders);
 
         if (incidentRequest.severity() != null && !incidentRequest.severity().isBlank()) {
             incident.setSeverity(incidentRequest.severity().trim().toUpperCase());
@@ -517,16 +536,20 @@ public class IncidentService {
 
         Incident updated = incidentRepository.save(incident);
 
-        Long newResponderId = updated.getAssignedResponder() != null ? updated.getAssignedResponder().getId() : null;
+        Set<Long> newResponderIds = newResponders.stream().map(User::getId).collect(Collectors.toSet());
 
-        if (newResponderId != null && !newResponderId.equals(oldResponderId)) {
-            markResponderBusy(updated.getAssignedResponder());
-            releaseResponderIfNoOtherActiveIncidents(oldResponder, incident.getId());
-            notifyResponderIfAssigned(updated, "You were assigned as responder for incident " + updated.getType());
-        }
+        List<User> addedResponders = newResponders.stream()
+                .filter(responder -> !oldResponderIds.contains(responder.getId()))
+                .toList();
+        List<User> removedResponders = oldResponders.stream()
+                .filter(responder -> !newResponderIds.contains(responder.getId()))
+                .toList();
 
-        if (newResponderId == null && oldResponderId != null) {
-            releaseResponderIfNoOtherActiveIncidents(oldResponder, incident.getId());
+        addedResponders.forEach(this::markResponderBusy);
+        removedResponders.forEach(responder -> releaseResponderIfNoOtherActiveIncidents(responder, incident.getId()));
+
+        if (!addedResponders.isEmpty()) {
+            notifyRespondersIfAssigned(updated, addedResponders, "You were assigned as responder for incident " + updated.getType());
         }
 
         if (isSeverityEscalatedToHighOrCritical(oldSeverity, updated.getSeverity())) {
@@ -542,7 +565,7 @@ public class IncidentService {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Incident not found"));
 
-        User responderToRelease = incident.getAssignedResponder();
+        List<User> respondersToRelease = new ArrayList<>(incident.getAssignedResponders());
 
         reliefDistributionRepository.deleteByIncidentId(incidentId);
         reliefDistributionRepository.flush();
@@ -558,22 +581,24 @@ public class IncidentService {
         incidentRepository.delete(incident);
         incidentRepository.flush();
 
-        releaseResponderIfNoOtherActiveIncidents(responderToRelease, incidentId);
+        respondersToRelease.forEach(responder -> releaseResponderIfNoOtherActiveIncidents(responder, incidentId));
     }
 
-    private void notifyResponderIfAssigned(Incident incident, String message) {
-        if (incident.getAssignedResponder() == null) {
+    private void notifyRespondersIfAssigned(Incident incident, List<User> responders, String message) {
+        if (responders == null || responders.isEmpty()) {
             return;
         }
 
-        notificationService.notifyUser(
-                incident.getAssignedResponder(),
-                "ASSIGNMENT",
-                "Incident Responder Assignment",
-                message,
-                "INCIDENT",
-                incident.getId()
-        );
+        for (User responder : responders) {
+            notificationService.notifyUser(
+                    responder,
+                    "ASSIGNMENT",
+                    "Incident Responder Assignment",
+                    message,
+                    "INCIDENT",
+                    incident.getId()
+            );
+        }
     }
 
     private void notifyAllUsersIfHighOrCritical(Incident incident, String message) {
