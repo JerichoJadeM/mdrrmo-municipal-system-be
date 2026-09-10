@@ -84,6 +84,8 @@ public class IncidentService {
         incident.setReportedAt(LocalDateTime.now());
         incident.setDescription(incidentRequest.description().trim());
         incident.setReportedBy(findAuthenticatedUser.getAuthenticatedUser());
+        incident.setLatitude(incidentRequest.latitude());
+        incident.setLongitude(incidentRequest.longitude());
 
         Incident savedIncident = incidentRepository.save(incident);
 
@@ -468,7 +470,9 @@ public class IncidentService {
                 incident.getReportedAt(),
                 incident.getDescription(),
                 assignedResponderIds,
-                assignedResponderNames
+                assignedResponderNames,
+                incident.getLatitude(),
+                incident.getLongitude()
         );
     }
 
@@ -533,6 +537,9 @@ public class IncidentService {
         if (incidentRequest.description() != null && !incidentRequest.description().isBlank()) {
             incident.setDescription(incidentRequest.description().trim());
         }
+
+        incident.setLatitude(incidentRequest.latitude());
+        incident.setLongitude(incidentRequest.longitude());
 
         Incident updated = incidentRepository.save(incident);
 

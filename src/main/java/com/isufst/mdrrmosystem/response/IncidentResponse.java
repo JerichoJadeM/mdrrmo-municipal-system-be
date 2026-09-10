@@ -15,5 +15,7 @@ public record IncidentResponse(
         LocalDateTime reportedAt,
         String description,
         List<Long> assignedResponderIds,
-        List<String> assignedResponderNames
+        List<String> assignedResponderNames,
+        Double latitude,
+        Double longitude
 ) { }

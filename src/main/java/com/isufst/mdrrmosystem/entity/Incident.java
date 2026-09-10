@@ -51,6 +51,12 @@ public class Incident {
     @Column(name = "archive_cleared_at")
     private LocalDateTime archiveClearedAt;
 
+    @Column
+    private Double latitude;
+
+    @Column
+    private Double longitude;
+
     public Incident() {}
 
     public Incident(String type, Barangay barangay, String severity, String status, LocalDateTime reportedAt, String description) {
@@ -148,5 +154,21 @@ public class Incident {
 
     public void setArchiveClearedAt(LocalDateTime archiveClearedAt) {
         this.archiveClearedAt = archiveClearedAt;
+    }
+
+    public Double getLatitude() {
+        return latitude;
+    }
+
+    public void setLatitude(Double latitude) {
+        this.latitude = latitude;
+    }
+
+    public Double getLongitude() {
+        return longitude;
+    }
+
+    public void setLongitude(Double longitude) {
+        this.longitude = longitude;
     }
 }
